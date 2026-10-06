@@ -28,7 +28,7 @@ observability:
       url: https://llm.blamedevs.com
       admin-key-env: LITELLM_ACCOUNTING_ADMIN_KEY
       clients:
-        "a1ddde2e73eba622cb6d85f1f94bbcd12fa73db26699aa210725c2a5b0c8f3ef":
+        "${LITELLM_CLIENT_ID}":
           key-hash: "${LITELLM_KEY_HASH}"
-  pricing:
-    litellm-catalog-url: https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json
+    pricing:
+      litellm-catalog-url: https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json

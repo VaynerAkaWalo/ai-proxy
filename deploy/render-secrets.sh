@@ -25,9 +25,10 @@ umask 077
 access_token=$(fetch_secret extractor-to-llm-key)
 LLM_ACCESS_TOKEN=$(json_string "$access_token")
 LITELLM_KEY_HASH=$(printf %s "$access_token" | sha256sum | cut -d' ' -f1)
-export LLM_ACCESS_TOKEN LITELLM_KEY_HASH
+LITELLM_CLIENT_ID=$({ printf 'client\0'; printf %s "$access_token"; } | sha256sum | cut -d' ' -f1)
+export LLM_ACCESS_TOKEN LITELLM_KEY_HASH LITELLM_CLIENT_ID
 
-envsubst '${LLM_ACCESS_TOKEN} ${LITELLM_KEY_HASH}' < "$deploy_dir/config.yaml.tmpl" > "$out_dir/config.yaml.new"
+envsubst '${LLM_ACCESS_TOKEN} ${LITELLM_KEY_HASH} ${LITELLM_CLIENT_ID}' < "$deploy_dir/config.yaml.tmpl" > "$out_dir/config.yaml.new"
 mv "$out_dir/config.yaml.new" "$out_dir/config.yaml"
 
 {
