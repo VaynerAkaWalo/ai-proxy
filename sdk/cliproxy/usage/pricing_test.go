@@ -258,3 +258,14 @@ func TestCatalogRefreshReplacesPriceBook(t *testing.T) {
 		t.Fatal("refreshed catalog was not cached for restart")
 	}
 }
+
+func TestExecutorProvidersFallBackToCatalogProvider(t *testing.T) {
+	for executor, catalog := range priceProviderFallbacks {
+		book := testPriceBook(t, config.PriceRate{Provider: catalog, Model: "m", Currency: "USD", Input: priceString("2")})
+		event := AccountingEvent{Provider: executor, ResponseModel: "m", Tokens: &AccountingTokens{Breakdown: NewSubsetTokenBreakdown(1, 0, 0, 0, 0, 1)}}
+		e := book.Estimate(event)
+		if e.Status != "priced" || e.Provider != catalog || *e.Amount != "2.000000000" {
+			t.Fatalf("%s: %+v", executor, e)
+		}
+	}
+}
