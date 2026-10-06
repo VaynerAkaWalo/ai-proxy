@@ -16,6 +16,8 @@ oauth:
   auth-dir: /root/.cli-proxy-api
 
 routing:
+  strategy: nearest-reset
+  session-affinity: true
   retry:
     request-retry: 3
 
