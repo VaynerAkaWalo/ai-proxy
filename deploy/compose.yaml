@@ -1,0 +1,17 @@
+services:
+  ai-proxy:
+    image: ghcr.io/vaynerakawalo/ai-proxy:${AI_PROXY_TAG:-latest}
+    container_name: ai-proxy
+    restart: unless-stopped
+    ports:
+      - "${AI_PROXY_BIND:-127.0.0.1}:8317:8317"
+    env_file:
+      - /run/ai-proxy/env
+    volumes:
+      - /run/ai-proxy/config.yaml:/CLIProxyAPI/config.yaml:ro
+      - auths:/root/.cli-proxy-api
+      - outbox:/data/outbox
+
+volumes:
+  auths:
+  outbox:

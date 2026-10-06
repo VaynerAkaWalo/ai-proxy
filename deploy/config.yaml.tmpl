@@ -1,0 +1,31 @@
+config-version: 8
+
+server:
+  host: ""
+  port: 8317
+
+management:
+  allow-remote: false
+  secret-key: ""
+
+access:
+  api-keys:
+    - ${EXTRACTOR_TO_LLM_KEY}
+
+oauth:
+  auth-dir: /root/.cli-proxy-api
+
+routing:
+  retry:
+    request-retry: 3
+
+observability:
+  accounting-outbox:
+    enabled: true
+    data-path: /data/outbox
+    litellm:
+      enabled: true
+      url: https://llm.blamedevs.com
+      admin-key-env: LITELLM_ACCOUNTING_ADMIN_KEY
+  pricing:
+    litellm-catalog-url: https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json

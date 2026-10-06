@@ -1,0 +1,21 @@
+[Unit]
+Description=ai-proxy
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+User=server
+Group=docker
+WorkingDirectory=/opt/ai-proxy/deploy
+RuntimeDirectory=ai-proxy
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=no
+ExecStartPre=/opt/ai-proxy/deploy/render-secrets.sh
+ExecStart=/usr/bin/docker compose up --remove-orphans
+ExecStop=/usr/bin/docker compose down
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
