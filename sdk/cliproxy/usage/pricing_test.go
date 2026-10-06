@@ -193,14 +193,14 @@ func TestInvalidPriceSnapshot(t *testing.T) {
 	}
 }
 
-func TestUnsupportedCatalogBandsRemainUnpriced(t *testing.T) {
-	rates, err := importLiteLLM([]byte(`{"m":{"litellm_provider":"openai","mode":"chat","input_cost_per_token":0.000001,"input_cost_per_token_above_200k_tokens":0.000002}}`))
+func TestCatalogConditionalPricesUseBaseRate(t *testing.T) {
+	rates, err := importLiteLLM([]byte(`{"m":{"litellm_provider":"openai","mode":"chat","input_cost_per_token":0.000001,"input_cost_per_token_above_200k_tokens":0.000002,"input_cost_per_token_priority":0.5}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	event := AccountingEvent{Provider: "openai", ExecutedModel: "m", Tokens: &AccountingTokens{Breakdown: NewSubsetTokenBreakdown(200001, 0, 0, 0, 0, 200001)}}
 	e := testPriceBook(t, rates...).Estimate(event)
-	if e.Status != "unpriced" || e.Amount != nil {
+	if e.Status != "priced" || *e.Amount != "0.200001000" {
 		t.Fatalf("%+v", e)
 	}
 }
