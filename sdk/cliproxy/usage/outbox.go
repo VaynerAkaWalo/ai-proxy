@@ -245,6 +245,42 @@ func (o *Outbox) Event(id string) (AccountingEvent, error) {
 	return event, err
 }
 
+func (o *Outbox) repriceUnpricedEvent(id string) (AccountingEvent, error) {
+	var event AccountingEvent
+	err := o.update(func(tx *bolt.Tx) error {
+		events := tx.Bucket(eventsBucket)
+		key := []byte(id)
+		raw := events.Get(key)
+		if raw == nil {
+			return os.ErrNotExist
+		}
+		if err := json.Unmarshal(raw, &event); err != nil {
+			return err
+		}
+		if event.Estimate == nil || event.Estimate.Status != "unpriced" {
+			return nil
+		}
+
+		estimate := o.prices.Load().Estimate(event)
+		if estimate.Status != "priced" {
+			return nil
+		}
+		event.Estimate = estimate
+		updated, err := json.Marshal(event)
+		if err != nil {
+			return err
+		}
+		if len(updated) > MaxAccountingEventBytes {
+			return errors.New("repriced accounting event exceeds size limit")
+		}
+		if err := o.checkDisk(tx); err != nil {
+			return err
+		}
+		return events.Put(key, updated)
+	})
+	return event, err
+}
+
 func (o *Outbox) Delivery(id string) (Delivery, error) {
 	var delivery Delivery
 	err := o.view(func(tx *bolt.Tx) error { return readDelivery(tx, id, &delivery) })
