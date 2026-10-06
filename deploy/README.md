@@ -7,8 +7,18 @@ Runs ai-proxy under systemd with Docker Compose. Secrets are read from OCI Vault
 Prerequisites: Docker with the `server` user in the `docker` group, the OCI CLI, `jq` and `envsubst`.
 
 1. Clone this repository to `/opt/ai-proxy`.
-2. Fetch the `homelab-secrets-reader-credentials` secret from the platform-security Vault. It is JSON with the private key and fingerprint.
-3. Put the key in `/etc/ai-proxy/oci/key.pem` and write `/etc/ai-proxy/oci/config` with `user`, `fingerprint`, `tenancy`, `region=eu-frankfurt-1` and `key_file=/etc/ai-proxy/oci/key.pem`. Both files must be readable by `server` only.
+2. From a machine with admin OCI access, fetch the credentials and write them on the host in one go:
+
+```bash
+oci secrets secret-bundle get-secret-bundle-by-name \
+  --vault-id ocid1.vault.oc1.eu-frankfurt-1.envlmxzraacwi.abtheljt7ekigp2dmv3oewuol7daxchhaebkj7iwy4ihoyx4b2bteqqjswha \
+  --secret-name homelab-secrets-reader-credentials \
+  --query 'data."secret-bundle-content".content' --raw-output | base64 -d \
+  | ssh <host> 'sudo /opt/ai-proxy/deploy/bootstrap-oci.sh'
+```
+
+   Run it without the `ssh` part on the host itself if the admin login is there. It creates `/etc/ai-proxy/oci/{key.pem,config}` owned by `server` with mode 600.
+3. Check the access: `sudo -u server OCI_CLI_CONFIG_FILE=/etc/ai-proxy/oci/config /opt/ai-proxy/deploy/render-secrets.sh /tmp` should write `config.yaml` and `env` into `/tmp`. Delete them afterwards.
 4. Write `/etc/ai-proxy/ai-proxy.env` with `AI_PROXY_BIND=<this host's tailnet IP>` so the API and management endpoints are reachable over Tailscale. Without it the proxy only listens on localhost.
 5. Install the units and start them:
 
