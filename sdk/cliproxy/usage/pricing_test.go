@@ -3,6 +3,8 @@ package usage
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -140,7 +142,7 @@ func TestPersistedEstimateSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.Estimate == nil || *stored.Estimate.Amount != "1.000000000" || stored.Estimate.Snapshot == reopened.prices.snapshot {
+	if stored.Estimate == nil || *stored.Estimate.Amount != "1.000000000" || stored.Estimate.Snapshot == reopened.prices.Load().snapshot {
 		t.Fatalf("%+v", stored.Estimate)
 	}
 	claimed, err := reopened.Claim(event.ExecutionID)
@@ -212,5 +214,47 @@ func TestCatalogRoundsExcessPrecision(t *testing.T) {
 	}
 	if got := *rates[0].Input; got != "0.000001234567890123" {
 		t.Fatal(got)
+	}
+}
+
+func TestPriceFallsBackToExecutedModel(t *testing.T) {
+	book := testPriceBook(t, config.PriceRate{Provider: "xai", Model: "grok-4.7", Currency: "USD", Input: priceString("2")})
+	event := AccountingEvent{Provider: "xai", ExecutedModel: "grok-4.7", ResponseModel: "grok-4.7-build", Tokens: &AccountingTokens{Breakdown: NewSubsetTokenBreakdown(1, 0, 0, 0, 0, 1)}}
+	e := book.Estimate(event)
+	if e.Status != "priced" || e.Model != "grok-4.7" || *e.Amount != "2.000000000" {
+		t.Fatalf("%+v", e)
+	}
+
+	event.ExecutedModel = "unknown"
+	e = book.Estimate(event)
+	if e.Status != "unpriced" || e.Model != "grok-4.7-build" {
+		t.Fatalf("%+v", e)
+	}
+}
+
+func TestCatalogRefreshReplacesPriceBook(t *testing.T) {
+	catalog := `{"openai/m":{"litellm_provider":"openai","mode":"chat","input_cost_per_token":1e-6}}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(catalog)) }))
+	defer server.Close()
+
+	dir := t.TempDir()
+	o := &Outbox{cfg: config.AccountingOutboxConfig{DataPath: dir, Pricing: config.PricingConfig{LiteLLMCatalogURL: server.URL}}}
+	if err := o.refreshCatalog(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	event := AccountingEvent{Provider: "openai", ExecutedModel: "m", Tokens: &AccountingTokens{Breakdown: NewSubsetTokenBreakdown(1, 0, 0, 0, 0, 1)}}
+	if e := o.prices.Load().Estimate(event); e.Status != "priced" {
+		t.Fatalf("%+v", e)
+	}
+
+	catalog = `not json`
+	snapshot := o.prices.Load().snapshot
+	if err := o.refreshCatalog(context.Background()); err == nil || o.prices.Load().snapshot != snapshot {
+		t.Fatal("failed refresh must keep the current book")
+	}
+
+	reloaded := loadPriceBook(o.cfg.Pricing, dir)
+	if reloaded == nil || reloaded.snapshot != snapshot {
+		t.Fatal("refreshed catalog was not cached for restart")
 	}
 }

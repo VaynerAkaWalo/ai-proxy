@@ -28,9 +28,12 @@ type PriceAlias struct {
 }
 
 type PricingConfig struct {
-	LiteLLMCatalogPath string       `yaml:"litellm-catalog-path" json:"litellm-catalog-path"`
-	Overrides          []PriceRate  `yaml:"overrides" json:"overrides"`
-	Aliases            []PriceAlias `yaml:"aliases" json:"aliases"`
+	LiteLLMCatalogPath string `yaml:"litellm-catalog-path" json:"litellm-catalog-path"`
+	// LiteLLMCatalogURL, when set, is downloaded at startup and every LiteLLMCatalogRefreshHours.
+	LiteLLMCatalogURL          string       `yaml:"litellm-catalog-url" json:"litellm-catalog-url"`
+	LiteLLMCatalogRefreshHours int          `yaml:"litellm-catalog-refresh-hours" json:"litellm-catalog-refresh-hours"`
+	Overrides                  []PriceRate  `yaml:"overrides" json:"overrides"`
+	Aliases                    []PriceAlias `yaml:"aliases" json:"aliases"`
 }
 
 type LiteLLMExporterConfig struct {
@@ -74,6 +77,9 @@ func (c AccountingOutboxConfig) Defaults() AccountingOutboxConfig {
 	if c.ShutdownSeconds == 0 {
 		c.ShutdownSeconds = 5
 	}
+	if c.Pricing.LiteLLMCatalogRefreshHours == 0 {
+		c.Pricing.LiteLLMCatalogRefreshHours = 6
+	}
 	return c
 }
 
@@ -83,6 +89,12 @@ func (c AccountingOutboxConfig) Validate() error {
 		u, err := url.Parse(c.LiteLLM.URL)
 		if !c.Enabled || err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.TrimSpace(c.LiteLLM.AdminKeyEnv) == "" {
 			return fmt.Errorf("LiteLLM exporter requires an enabled outbox, HTTP(S) URL without credentials or query, and admin-key-env")
+		}
+	}
+	if c.Pricing.LiteLLMCatalogURL != "" {
+		u, err := url.Parse(c.Pricing.LiteLLMCatalogURL)
+		if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || c.Pricing.LiteLLMCatalogRefreshHours < 1 || c.Pricing.LiteLLMCatalogRefreshHours > 8760 {
+			return fmt.Errorf("invalid observability.accounting-outbox.pricing catalog URL or refresh interval")
 		}
 	}
 	if c.Enabled && strings.TrimSpace(c.DataPath) == "" {
