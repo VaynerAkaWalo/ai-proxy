@@ -22,7 +22,7 @@ json_string() {
 
 umask 077
 
-access_token=$(fetch_secret extractor-to-llm-key)
+access_token=$(fetch_secret ai-proxy-access-key)
 LLM_ACCESS_TOKEN=$(json_string "$access_token")
 LITELLM_KEY_HASH=$(printf %s "$access_token" | sha256sum | cut -d' ' -f1)
 LITELLM_CLIENT_ID=$({ printf 'client\0'; printf %s "$access_token"; } | sha256sum | cut -d' ' -f1)
