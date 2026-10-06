@@ -164,7 +164,7 @@ func (e *LiteLLMExporter) ExportOnce(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return nil
 		}
-		event, err := e.outbox.Event(id)
+		event, err := e.outbox.repriceUnpricedEvent(id)
 		if err != nil {
 			return err
 		}

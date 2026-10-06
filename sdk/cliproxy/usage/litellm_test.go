@@ -82,6 +82,51 @@ func TestLiteLLMOutcomes(t *testing.T) {
 	}
 }
 
+func TestLiteLLMRepricesHeldEventAfterCatalogRefresh(t *testing.T) {
+	t.Setenv("TEST_LITELLM_ADMIN", "test-admin")
+	var responseCost float64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var batch struct {
+			Records []callbackRecord `json:"records"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&batch); err != nil || len(batch.Records) != 1 {
+			t.Fatalf("invalid batch: %v", err)
+		}
+		responseCost = batch.Records[0].Payload["response_cost"].(float64)
+		_ = json.NewEncoder(w).Encode(map[string]any{"processed": 1, "failed": 0, "failures": []any{}})
+	}))
+	defer server.Close()
+
+	o := openTestOutbox(t, config.AccountingOutboxConfig{})
+	event := exportEvent("repriced")
+	event.Estimate = &CostEstimate{Status: "unpriced", Missing: []string{"model_tier_context_price"}}
+	if err := o.Insert(event); err != nil {
+		t.Fatal(err)
+	}
+	o.prices.Store(testPriceBook(t,
+		config.PriceRate{Provider: "openai", Model: "gpt-4o", Currency: "USD", Input: priceString("0.1"), Output: priceString("0.2"), CacheRead: priceString("0.1")},
+	))
+	if estimate := o.prices.Load().Estimate(event); estimate.Status != "priced" {
+		t.Fatalf("test price book did not price event: %+v", estimate)
+	}
+
+	e := NewLiteLLMExporter(o, exporterConfig(server.URL))
+	if err := e.ExportOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if responseCost != 2 {
+		t.Fatalf("unexpected response cost: %v", responseCost)
+	}
+	stored, err := o.Event("repriced")
+	if err != nil || stored.Estimate == nil || stored.Estimate.Status != "priced" || stored.Estimate.Snapshot != o.prices.Load().snapshot {
+		t.Fatalf("repriced estimate was not persisted: %+v, %v", stored.Estimate, err)
+	}
+	delivery, err := o.Delivery("repriced")
+	if err != nil || delivery.State != DeliveryAcknowledged {
+		t.Fatalf("unexpected delivery: %+v, %v", delivery, err)
+	}
+}
+
 func TestLiteLLMCancellation(t *testing.T) {
 	entered := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
