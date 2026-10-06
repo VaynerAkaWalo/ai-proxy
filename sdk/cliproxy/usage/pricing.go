@@ -213,12 +213,7 @@ func importLiteLLM(raw []byte) ([]config.PriceRate, error) {
 				*target = &decimal
 			}
 		}
-		// Unsupported conditional prices cannot safely be treated as the base price.
-		for field := range entry {
-			if strings.Contains(field, "cost") && (strings.Contains(field, "above_") || strings.Contains(field, "priority") || strings.Contains(field, "flex")) {
-				rate.Input, rate.Output, rate.CacheRead, rate.CacheCreation = nil, nil, nil, nil
-			}
-		}
+		// Conditional prices (above-context, priority, flex) are ignored so the base rate is reported instead of nothing.
 		rates = append(rates, rate)
 	}
 	if len(rates) == 0 {
