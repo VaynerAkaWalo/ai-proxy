@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net"
@@ -189,7 +190,7 @@ func (e *LiteLLMExporter) ExportOnce(ctx context.Context) error {
 		if errPayload != nil {
 			e.setStatus("mapping_required: verify client identity, complete usage and USD pricing")
 			_, mapped := e.cfg.Clients[event.ClientKeyID]
-			log.Warnf("LiteLLM export held for event %s (provider=%s model=%s client_mapped=%t estimate=%s missing=%v): %v", event.ExecutionID, event.Provider, event.ExecutedModel, mapped, estimateStatus(event.Estimate), estimateMissing(event.Estimate), errPayload)
+			log.Warnf("LiteLLM export held for event %s (provider=%s model=%s response_model=%q tier=%q priced_as=%s client_mapped=%t estimate=%s missing=%v): %v", event.ExecutionID, event.Provider, event.ExecutedModel, event.ResponseModel, event.ReportedServiceTier, estimateLookup(event.Estimate), mapped, estimateStatus(event.Estimate), estimateMissing(event.Estimate), errPayload)
 			// No request has been sent. Retain the event for configuration repair.
 			if err := e.outbox.Resolve(id, delivery.Attempts, DeliveryRetryable, e.outbox.now().Add(time.Hour)); err != nil {
 				return err
@@ -265,6 +266,13 @@ func estimateStatus(estimate *CostEstimate) string {
 		return "none"
 	}
 	return estimate.Status
+}
+
+func estimateLookup(estimate *CostEstimate) string {
+	if estimate == nil {
+		return "none"
+	}
+	return fmt.Sprintf("%s/%s/tier=%q", estimate.Provider, estimate.Model, estimate.Tier)
 }
 
 func estimateMissing(estimate *CostEstimate) []string {

@@ -204,12 +204,8 @@ func importLiteLLM(raw []byte) ([]config.PriceRate, error) {
 				if !ok || r.Sign() < 0 {
 					return nil, fmt.Errorf("invalid catalog rate for %s", key)
 				}
-				// LiteLLM commonly uses scientific notation. Preserve exact finite decimals.
+				// LiteLLM commonly uses scientific notation. Rates beyond 18 places round rather than discard the catalog.
 				decimal := r.FloatString(18)
-				parsed, _ := new(big.Rat).SetString(decimal)
-				if parsed.Cmp(r) != 0 {
-					return nil, fmt.Errorf("catalog precision exceeds 18 places")
-				}
 				*target = &decimal
 			}
 		}

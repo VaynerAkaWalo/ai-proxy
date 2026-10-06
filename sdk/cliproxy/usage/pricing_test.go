@@ -204,3 +204,13 @@ func TestCatalogConditionalPricesUseBaseRate(t *testing.T) {
 		t.Fatalf("%+v", e)
 	}
 }
+
+func TestCatalogRoundsExcessPrecision(t *testing.T) {
+	rates, err := importLiteLLM([]byte(`{"m":{"litellm_provider":"openai","mode":"chat","input_cost_per_token":1.23456789012345678901e-06}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := *rates[0].Input; got != "0.000001234567890123" {
+		t.Fatal(got)
+	}
+}
