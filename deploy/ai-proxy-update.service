@@ -5,4 +5,4 @@ Requires=docker.service
 [Service]
 Type=oneshot
 EnvironmentFile=-/etc/ai-proxy/ai-proxy.env
-ExecStart=/opt/ai-proxy/deploy/update.sh
+ExecStart=@DEPLOY_DIR@/update.sh

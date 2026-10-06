@@ -5,14 +5,14 @@ Requires=docker.service
 Wants=network-online.target
 
 [Service]
-User=server
+User=@USER@
 Group=docker
-WorkingDirectory=/opt/ai-proxy/deploy
+WorkingDirectory=@DEPLOY_DIR@
 EnvironmentFile=-/etc/ai-proxy/ai-proxy.env
 RuntimeDirectory=ai-proxy
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=no
-ExecStartPre=/opt/ai-proxy/deploy/render-secrets.sh
+ExecStartPre=@DEPLOY_DIR@/render-secrets.sh
 ExecStart=/usr/bin/docker compose up --remove-orphans
 ExecStop=/usr/bin/docker compose down
 Restart=on-failure
