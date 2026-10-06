@@ -4,7 +4,12 @@ Runs ai-proxy under systemd with Docker Compose. Secrets are read from OCI Vault
 
 ## Bootstrap
 
-Prerequisites: Docker with the `server` user in the `docker` group, the OCI CLI, `jq` and `envsubst`.
+Prerequisites: Docker with the `server` user in the `docker` group, and the OCI CLI, `jq` and `envsubst` on the system `PATH`:
+
+```bash
+sudo apt install -y pipx jq gettext-base
+sudo PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install oci-cli
+```
 
 1. Clone this repository to `/opt/ai-proxy`.
 2. From a machine with admin OCI access, fetch the credentials and write them on the host in one go:
