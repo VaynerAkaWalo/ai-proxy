@@ -1,6 +1,6 @@
 [Unit]
 Description=ai-proxy
-After=docker.service network-online.target
+After=docker.service tailscaled.service network-online.target
 Requires=docker.service
 Wants=network-online.target
 
@@ -8,6 +8,7 @@ Wants=network-online.target
 User=server
 Group=docker
 WorkingDirectory=/opt/ai-proxy/deploy
+EnvironmentFile=-/etc/ai-proxy/ai-proxy.env
 RuntimeDirectory=ai-proxy
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=no
