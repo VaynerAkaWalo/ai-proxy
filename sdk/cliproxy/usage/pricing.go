@@ -162,6 +162,9 @@ func (b *PriceBook) Estimate(event AccountingEvent) *CostEstimate {
 // lookup tries the model names a request is known by, most specific first, so a provider-reported
 // build name that the catalog lacks still prices as the model that was requested.
 // When nothing matches, the first candidate is returned for diagnostics.
+// The LiteLLM catalog prices subscription providers' models only under the underlying API provider.
+var priceProviderFallbacks = map[string]string{"codex": "openai"}
+
 func (b *PriceBook) lookup(event AccountingEvent, tier string, contextTokens int64) (string, string, int) {
 	var candidates []string
 	for _, model := range []string{event.ResponseModel, event.ExecutedModel, event.RequestedAlias} {
@@ -181,10 +184,10 @@ func (b *PriceBook) lookup(event AccountingEvent, tier string, contextTokens int
 		if i == 0 {
 			firstProvider, firstModel = provider, model
 		}
-		index := -1
-		for j, rate := range b.rates {
-			if rate.Provider == provider && rate.Model == model && rate.Tier == tier && contextTokens >= rate.MinContext && (rate.MaxContext == 0 || contextTokens <= rate.MaxContext) {
-				index = j
+		index := b.find(provider, model, tier, contextTokens)
+		if fallback, ok := priceProviderFallbacks[provider]; index < 0 && ok {
+			if index = b.find(fallback, model, tier, contextTokens); index >= 0 {
+				provider = fallback
 			}
 		}
 		if index >= 0 {
@@ -192,6 +195,16 @@ func (b *PriceBook) lookup(event AccountingEvent, tier string, contextTokens int
 		}
 	}
 	return firstProvider, firstModel, -1
+}
+
+func (b *PriceBook) find(provider, model, tier string, contextTokens int64) int {
+	index := -1
+	for i, rate := range b.rates {
+		if rate.Provider == provider && rate.Model == model && rate.Tier == tier && contextTokens >= rate.MinContext && (rate.MaxContext == 0 || contextTokens <= rate.MaxContext) {
+			index = i
+		}
+	}
+	return index
 }
 
 func importLiteLLM(raw []byte) ([]config.PriceRate, error) {

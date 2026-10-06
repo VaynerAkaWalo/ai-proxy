@@ -258,3 +258,12 @@ func TestCatalogRefreshReplacesPriceBook(t *testing.T) {
 		t.Fatal("refreshed catalog was not cached for restart")
 	}
 }
+
+func TestCodexFallsBackToOpenAIPrice(t *testing.T) {
+	book := testPriceBook(t, config.PriceRate{Provider: "openai", Model: "gpt-6-luna", Currency: "USD", Input: priceString("2")})
+	event := AccountingEvent{Provider: "codex", ResponseModel: "gpt-6-luna", Tokens: &AccountingTokens{Breakdown: NewSubsetTokenBreakdown(1, 0, 0, 0, 0, 1)}}
+	e := book.Estimate(event)
+	if e.Status != "priced" || e.Provider != "openai" || *e.Amount != "2.000000000" {
+		t.Fatalf("%+v", e)
+	}
+}
