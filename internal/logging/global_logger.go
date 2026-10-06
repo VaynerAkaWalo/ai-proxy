@@ -242,6 +242,7 @@ func ConfigureLogOutput(cfg *config.Config) error {
 	}
 
 	configureLogDirCleanerLocked(logDir, cfg.LogsMaxTotalSizeMB, protectedPath)
+	configureLoki(cfg.Loki)
 	return nil
 }
 
@@ -250,6 +251,7 @@ func closeLogOutputs() {
 	defer writerMu.Unlock()
 
 	stopLogDirCleanerLocked()
+	closeLoki()
 
 	if logWriter != nil {
 		_ = logWriter.Close()

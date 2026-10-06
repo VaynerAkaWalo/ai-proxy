@@ -1098,6 +1098,10 @@ observability:
     pricing:
       # Import a locally supplied LiteLLM JSON catalog. Valid imports are cached in data-path.
       litellm-catalog-path: ""
+      # Download the catalog at startup and refresh it every litellm-catalog-refresh-hours.
+      # A refresh replaces the prices only after it parses, and is cached in data-path.
+      litellm-catalog-url: "" # e.g. https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json
+      litellm-catalog-refresh-hours: 6
       # Rates are decimal strings in currency units per token. Missing rates remain unpriced.
       # Later matching overrides win. Context bounds are inclusive, max-context: 0 is unbounded.
       # Example override entry:
@@ -1116,6 +1120,16 @@ observability:
       #   target-provider: openai
       #   target-model: gpt-5
       aliases: []
+
+  # Ship warnings, errors and startup logs to Grafana Cloud Loki.
+  loki:
+    enabled: false
+    url: "" # Loki base URL from the Grafana Cloud stack details, without /loki/api/v1/push.
+    user-id: "" # Loki instance ID, used as the basic auth user.
+    token-env: "GRAFANA_CLOUD_LOGS_TOKEN" # Environment variable holding a token with logs:write scope.
+    min-level: warn # warn, error or info. Lower-severity logs are only shipped during startup.
+    startup-seconds: 60 # Also ship info logs emitted within this many seconds of process start.
+    labels: {} # Extra stream labels. service=ai-proxy and level are always set.
 
   logs:
     # Enable debug logging
