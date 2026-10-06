@@ -36,3 +36,25 @@ observability:
           key-hash: "${LITELLM_KEY_HASH}"
     pricing:
       litellm-catalog-url: https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json
+      # The catalog prices codex models only under the openai provider.
+      aliases:
+        - provider: codex
+          model: gpt-6-luna
+          target-provider: openai
+          target-model: gpt-6-luna
+        - provider: codex
+          model: gpt-6-sol
+          target-provider: openai
+          target-model: gpt-6-sol
+        - provider: codex
+          model: gpt-6-astra
+          target-provider: openai
+          target-model: gpt-6-astra
+        - provider: codex
+          model: gpt-6.1-sol
+          target-provider: openai
+          target-model: gpt-6.1-sol
+        - provider: codex
+          model: gpt-5.6-luna
+          target-provider: openai
+          target-model: gpt-5.6-luna
