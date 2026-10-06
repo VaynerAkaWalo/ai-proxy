@@ -34,5 +34,6 @@ mv "$out_dir/config.yaml.new" "$out_dir/config.yaml"
 {
   echo "MANAGEMENT_PASSWORD=$(fetch_secret cli-proxy-api-management-password)"
   echo "LITELLM_ACCOUNTING_ADMIN_KEY=$(fetch_secret litellm-masterkey)"
+  echo "GRAFANA_CLOUD_LOGS_TOKEN=$(fetch_secret grafana-alloy-token)"
 } > "$out_dir/env.new"
 mv "$out_dir/env.new" "$out_dir/env"
