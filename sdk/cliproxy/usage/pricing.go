@@ -162,8 +162,14 @@ func (b *PriceBook) Estimate(event AccountingEvent) *CostEstimate {
 // lookup tries the model names a request is known by, most specific first, so a provider-reported
 // build name that the catalog lacks still prices as the model that was requested.
 // When nothing matches, the first candidate is returned for diagnostics.
-// The LiteLLM catalog prices subscription providers' models only under the underlying API provider.
-var priceProviderFallbacks = map[string]string{"codex": "openai"}
+// The LiteLLM catalog prices models only under the underlying API provider, not the proxy's executor identifier.
+var priceProviderFallbacks = map[string]string{
+	"codex":       "openai",
+	"claude":      "anthropic",
+	"antigravity": "gemini",
+	"aistudio":    "gemini",
+	"kimi":        "moonshot",
+}
 
 func (b *PriceBook) lookup(event AccountingEvent, tier string, contextTokens int64) (string, string, int) {
 	var candidates []string

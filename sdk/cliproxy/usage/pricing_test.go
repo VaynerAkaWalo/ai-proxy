@@ -259,11 +259,13 @@ func TestCatalogRefreshReplacesPriceBook(t *testing.T) {
 	}
 }
 
-func TestCodexFallsBackToOpenAIPrice(t *testing.T) {
-	book := testPriceBook(t, config.PriceRate{Provider: "openai", Model: "gpt-6-luna", Currency: "USD", Input: priceString("2")})
-	event := AccountingEvent{Provider: "codex", ResponseModel: "gpt-6-luna", Tokens: &AccountingTokens{Breakdown: NewSubsetTokenBreakdown(1, 0, 0, 0, 0, 1)}}
-	e := book.Estimate(event)
-	if e.Status != "priced" || e.Provider != "openai" || *e.Amount != "2.000000000" {
-		t.Fatalf("%+v", e)
+func TestExecutorProvidersFallBackToCatalogProvider(t *testing.T) {
+	for executor, catalog := range priceProviderFallbacks {
+		book := testPriceBook(t, config.PriceRate{Provider: catalog, Model: "m", Currency: "USD", Input: priceString("2")})
+		event := AccountingEvent{Provider: executor, ResponseModel: "m", Tokens: &AccountingTokens{Breakdown: NewSubsetTokenBreakdown(1, 0, 0, 0, 0, 1)}}
+		e := book.Estimate(event)
+		if e.Status != "priced" || e.Provider != catalog || *e.Amount != "2.000000000" {
+			t.Fatalf("%s: %+v", executor, e)
+		}
 	}
 }
