@@ -50,7 +50,8 @@ type OutboxStats struct {
 }
 
 type Outbox struct {
-	prices      *PriceBook
+	prices      atomic.Pointer[PriceBook]
+	stopRefresh context.CancelFunc
 	db          *bolt.DB
 	unavailable bool
 	cfg         config.AccountingOutboxConfig
@@ -99,7 +100,12 @@ func OpenOutbox(cfg config.AccountingOutboxConfig) (*Outbox, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("initialize accounting store: %w", err)
 	}
-	o.prices = loadPriceBook(cfg.Pricing, cfg.DataPath)
+	o.prices.Store(loadPriceBook(cfg.Pricing, cfg.DataPath))
+	if cfg.Pricing.LiteLLMCatalogURL != "" {
+		ctx, cancel := context.WithCancel(context.Background())
+		o.stopRefresh = cancel
+		go o.refreshCatalogLoop(ctx)
+	}
 	go o.run()
 	return o, nil
 }
@@ -111,7 +117,7 @@ func (o *Outbox) HandleAccountingEvent(event AccountingEvent) {
 		return
 	}
 	if event.Estimate == nil {
-		event.Estimate = o.prices.Estimate(event)
+		event.Estimate = o.prices.Load().Estimate(event)
 	}
 	if !boundedAccountingEvent(event) {
 		o.dropped.Add(1)
@@ -171,7 +177,7 @@ func (o *Outbox) run() {
 // Insert returns success only after bbolt's transaction and fsync complete.
 func (o *Outbox) Insert(event AccountingEvent) error {
 	if event.Estimate == nil {
-		event.Estimate = o.prices.Estimate(event)
+		event.Estimate = o.prices.Load().Estimate(event)
 	}
 	raw, err := json.Marshal(event)
 	if err != nil {
@@ -380,6 +386,9 @@ func (o *Outbox) Stats() (OutboxStats, error) {
 // Close stops admission and bounds the caller's wait. A blocked filesystem operation
 // cannot be cancelled safely, so ownership remains held until the worker finishes.
 func (o *Outbox) Close(ctx context.Context) error {
+	if o.stopRefresh != nil {
+		o.stopRefresh()
+	}
 	o.mu.Lock()
 	if !o.closed {
 		o.closed = true

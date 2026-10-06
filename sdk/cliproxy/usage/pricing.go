@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -102,27 +103,12 @@ func (b *PriceBook) Estimate(event AccountingEvent) *CostEstimate {
 		return e
 	}
 	e.Snapshot = b.snapshot
-	provider, model := event.Provider, event.ExecutedModel
-	if event.ResponseModel != "" {
-		model = event.ResponseModel
-	}
-	for _, alias := range b.aliases {
-		if alias.Provider == provider && alias.Model == model {
-			provider, model = alias.TargetProvider, alias.TargetModel
-			break
-		}
-	}
 	tier := event.ReportedServiceTier
 	if tier == "" || tier == "default" {
 		tier = ""
 	}
+	provider, model, index := b.lookup(event, tier, breakdown.Input.TotalTokens)
 	e.Provider, e.Model, e.Tier = provider, model, tier
-	index := -1
-	for i, rate := range b.rates {
-		if rate.Provider == provider && rate.Model == model && rate.Tier == tier && breakdown.Input.TotalTokens >= rate.MinContext && (rate.MaxContext == 0 || breakdown.Input.TotalTokens <= rate.MaxContext) {
-			index = i
-		}
-	}
 	if index < 0 {
 		e.Missing = []string{"model_tier_context_price"}
 		return e
@@ -173,6 +159,41 @@ func (b *PriceBook) Estimate(event AccountingEvent) *CostEstimate {
 	return e
 }
 
+// lookup tries the model names a request is known by, most specific first, so a provider-reported
+// build name that the catalog lacks still prices as the model that was requested.
+// When nothing matches, the first candidate is returned for diagnostics.
+func (b *PriceBook) lookup(event AccountingEvent, tier string, contextTokens int64) (string, string, int) {
+	var candidates []string
+	for _, model := range []string{event.ResponseModel, event.ExecutedModel, event.RequestedAlias} {
+		if model != "" && !slices.Contains(candidates, model) {
+			candidates = append(candidates, model)
+		}
+	}
+	firstProvider, firstModel := event.Provider, ""
+	for i, model := range candidates {
+		provider := event.Provider
+		for _, alias := range b.aliases {
+			if alias.Provider == provider && alias.Model == model {
+				provider, model = alias.TargetProvider, alias.TargetModel
+				break
+			}
+		}
+		if i == 0 {
+			firstProvider, firstModel = provider, model
+		}
+		index := -1
+		for j, rate := range b.rates {
+			if rate.Provider == provider && rate.Model == model && rate.Tier == tier && contextTokens >= rate.MinContext && (rate.MaxContext == 0 || contextTokens <= rate.MaxContext) {
+				index = j
+			}
+		}
+		if index >= 0 {
+			return provider, model, index
+		}
+	}
+	return firstProvider, firstModel, -1
+}
+
 func importLiteLLM(raw []byte) ([]config.PriceRate, error) {
 	var entries map[string]map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &entries); err != nil {
@@ -220,9 +241,12 @@ func importLiteLLM(raw []byte) ([]config.PriceRate, error) {
 
 func loadPriceBook(cfg config.PricingConfig, dataPath string) *PriceBook {
 	var rates []config.PriceRate
-	var sources []string
-	cache := filepath.Join(dataPath, "pricing-litellm.json")
-	if cfg.LiteLLMCatalogPath != "" {
+	cache := filepath.Join(dataPath, catalogCacheFile)
+	if cfg.LiteLLMCatalogURL != "" {
+		// The refreshed cache is newer than a bootstrap file on disk.
+		rates = readCachedCatalog(cache)
+	}
+	if rates == nil && cfg.LiteLLMCatalogPath != "" {
 		raw, err := os.ReadFile(cfg.LiteLLMCatalogPath)
 		if err == nil {
 			rates, err = importLiteLLM(raw)
@@ -231,25 +255,39 @@ func loadPriceBook(cfg config.PricingConfig, dataPath string) *PriceBook {
 			_, err = NewPriceBook(rates, nil, makeSources(len(rates), "litellm"))
 		}
 		if err == nil {
-			if errWrite := os.WriteFile(cache+".tmp", raw, 0600); errWrite == nil {
-				errWrite = os.Rename(cache+".tmp", cache)
-				if errWrite != nil {
-					log.WithError(errWrite).Warn("price cache rename failed")
-				}
-			} else {
-				log.WithError(errWrite).Warn("price cache write failed")
-			}
+			writeCatalogCache(cache, raw)
 		} else {
 			log.WithError(err).Warn("price import unavailable, using validated local cache")
-			rates = nil
-			if cached, errRead := os.ReadFile(cache); errRead == nil {
-				rates, _ = importLiteLLM(cached)
-			}
+			rates = readCachedCatalog(cache)
 		}
-		sources = makeSources(len(rates), "litellm")
 	}
-	rates = append(rates, cfg.Overrides...)
-	sources = append(sources, makeSources(len(cfg.Overrides), "local_override")...)
+	return newCatalogPriceBook(cfg, rates)
+}
+
+const catalogCacheFile = "pricing-litellm.json"
+
+func readCachedCatalog(cache string) []config.PriceRate {
+	raw, err := os.ReadFile(cache)
+	if err != nil {
+		return nil
+	}
+	rates, _ := importLiteLLM(raw)
+	return rates
+}
+
+func writeCatalogCache(cache string, raw []byte) {
+	if err := os.WriteFile(cache+".tmp", raw, 0600); err != nil {
+		log.WithError(err).Warn("price cache write failed")
+		return
+	}
+	if err := os.Rename(cache+".tmp", cache); err != nil {
+		log.WithError(err).Warn("price cache rename failed")
+	}
+}
+
+func newCatalogPriceBook(cfg config.PricingConfig, catalog []config.PriceRate) *PriceBook {
+	rates := append(slices.Clone(catalog), cfg.Overrides...)
+	sources := append(makeSources(len(catalog), "litellm"), makeSources(len(cfg.Overrides), "local_override")...)
 	book, err := NewPriceBook(rates, cfg.Aliases, sources)
 	if err != nil {
 		log.WithError(err).Warn("pricing unavailable, usage remains unpriced")
