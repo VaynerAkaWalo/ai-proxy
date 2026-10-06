@@ -1,0 +1,8 @@
+[Unit]
+Description=Pull the ai-proxy image and restart on change
+Requires=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/ai-proxy/ai-proxy.env
+ExecStart=/opt/ai-proxy/deploy/update.sh
