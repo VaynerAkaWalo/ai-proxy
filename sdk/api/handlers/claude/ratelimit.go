@@ -1,13 +1,14 @@
 package claude
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 )
 
-func setClaudeRateLimitResetHeaders(headers http.Header, status int, now time.Time) {
+func setClaudeRateLimitResetHeaders(headers http.Header, status int, now time.Time, upstreamErr error) {
 	if status != http.StatusTooManyRequests || headers.Get("Anthropic-Ratelimit-Unified-Reset") != "" {
 		return
 	}
@@ -20,7 +21,15 @@ func setClaudeRateLimitResetHeaders(headers http.Header, status int, now time.Ti
 	} else {
 		reset, errParse = http.ParseTime(raw)
 		if errParse != nil || !reset.After(now) {
-			return
+			var provider interface{ ClaudeRateLimitReset() time.Time }
+			if !errors.As(upstreamErr, &provider) {
+				return
+			}
+
+			reset = provider.ClaudeRateLimitReset()
+			if !reset.After(now) {
+				return
+			}
 		}
 	}
 
