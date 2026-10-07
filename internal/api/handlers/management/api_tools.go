@@ -22,6 +22,8 @@ import (
 
 const defaultAPICallTimeout = 60 * time.Second
 
+var errAPICallReadResponse = errors.New("failed to read response")
+
 const (
 	antigravityOAuthClientID     = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
 	antigravityOAuthClientSecret = "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"
@@ -41,9 +43,10 @@ type apiCallRequest struct {
 }
 
 type apiCallResponse struct {
-	StatusCode int                 `json:"status_code"`
-	Header     map[string][]string `json:"header"`
-	Body       string              `json:"body"`
+	StatusCode int                   `json:"status_code"`
+	Header     map[string][]string   `json:"header"`
+	Body       string                `json:"body"`
+	Cache      *claudeUsageCacheInfo `json:"cache,omitempty"`
 }
 
 // APICall makes a generic HTTP request on behalf of the management API caller.
@@ -214,11 +217,34 @@ func (h *Handler) APICall(c *gin.Context) {
 	}
 	httpClient.Transport = h.apiCallTransport(auth, requestProxyURL)
 
-	resp, errDo := httpClient.Do(req)
+	fetch := func() (apiCallResponse, error) {
+		return performAPICall(httpClient, req)
+	}
+	var response apiCallResponse
+	var errDo error
+	if key, ok := claudeUsageCacheKey(req, auth); ok {
+		response, errDo = h.claudeUsage.fetch(c.Request.Context(), key, func(ctx context.Context) (apiCallResponse, error) {
+			return performAPICall(httpClient, req.Clone(ctx))
+		})
+	} else {
+		response, errDo = fetch()
+	}
 	if errDo != nil {
 		log.WithError(errDo).Debug("management APICall request failed")
-		c.JSON(http.StatusBadGateway, gin.H{"error": "request failed"})
+		message := "request failed"
+		if errors.Is(errDo, errAPICallReadResponse) {
+			message = errAPICallReadResponse.Error()
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"error": message})
 		return
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+func performAPICall(client *http.Client, req *http.Request) (apiCallResponse, error) {
+	resp, errDo := client.Do(req)
+	if errDo != nil {
+		return apiCallResponse{}, errDo
 	}
 	defer func() {
 		if errClose := resp.Body.Close(); errClose != nil {
@@ -228,15 +254,14 @@ func (h *Handler) APICall(c *gin.Context) {
 
 	respBody, errReadAll := io.ReadAll(resp.Body)
 	if errReadAll != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to read response"})
-		return
+		return apiCallResponse{}, fmt.Errorf("%w: %v", errAPICallReadResponse, errReadAll)
 	}
 
-	c.JSON(http.StatusOK, apiCallResponse{
+	return apiCallResponse{
 		StatusCode: resp.StatusCode,
 		Header:     resp.Header,
 		Body:       string(respBody),
-	})
+	}, nil
 }
 
 func firstNonEmptyString(values ...*string) string {
