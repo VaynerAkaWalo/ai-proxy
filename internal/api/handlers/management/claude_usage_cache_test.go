@@ -137,6 +137,35 @@ func TestClaudeUsageCacheColdRateLimitBackoff(t *testing.T) {
 	}
 }
 
+func TestClaudeUsageCacheRetryAfterOverridesFallbackBackoff(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	cache := claudeUsageCache{nowFunc: func() time.Time { return now }}
+	calls := 0
+	retryAfter := "60"
+	fetch := func(context.Context) (apiCallResponse, error) {
+		calls++
+		return apiCallResponse{StatusCode: 429, Header: http.Header{"Retry-After": {retryAfter}}}, nil
+	}
+
+	_, _ = cache.fetch(context.Background(), "account", fetch)
+	if got := cache.entries["account"].nextRefreshAt; !got.Equal(now.Add(time.Minute)) {
+		t.Fatalf("next refresh = %s, want Retry-After deadline", got)
+	}
+
+	now = now.Add(59 * time.Second)
+	_, _ = cache.fetch(context.Background(), "account", fetch)
+	if calls != 1 {
+		t.Fatal("retried before Retry-After elapsed")
+	}
+
+	now = now.Add(time.Second)
+	retryAfter = now.Add(90 * time.Second).Format(http.TimeFormat)
+	_, _ = cache.fetch(context.Background(), "account", fetch)
+	if calls != 2 || !cache.entries["account"].nextRefreshAt.Equal(now.Add(90*time.Second)) {
+		t.Fatal("HTTP-date Retry-After did not override the longer fallback backoff")
+	}
+}
+
 func TestClaudeUsageCacheConcurrentRequests(t *testing.T) {
 	var cache claudeUsageCache
 	started, release := make(chan struct{}), make(chan struct{})

@@ -164,7 +164,7 @@ func (entry *claudeUsageCacheEntry) update(result apiCallResponse, err error, no
 	if err == nil && result.StatusCode == http.StatusTooManyRequests {
 		entry.backoff = max(claudeUsageRefreshInterval, min(entry.backoff*2, claudeUsageMaxBackoff))
 		entry.nextRefreshAt = now.Add(entry.backoff)
-		if retryAt := claudeUsageRetryAt(http.Header(result.Header).Get("Retry-After"), now); retryAt.After(entry.nextRefreshAt) {
+		if retryAt := claudeUsageRetryAt(http.Header(result.Header).Get("Retry-After"), now); !retryAt.IsZero() {
 			entry.nextRefreshAt = retryAt
 		}
 	}
