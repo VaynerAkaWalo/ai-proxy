@@ -671,6 +671,11 @@ func (claudeEntitlementError) IsCredentialScoped() bool {
 type claudeRateLimitError struct {
 	statusErr
 	credentialScoped bool
+	resetAt          time.Time
+}
+
+func (e claudeRateLimitError) ClaudeRateLimitReset() time.Time {
+	return e.resetAt
 }
 
 func (e claudeRateLimitError) IsCredentialScoped() bool {
@@ -696,20 +701,26 @@ func classifyClaudeUpstreamError(statusCode int, headers http.Header, body []byt
 }
 
 func classifyClaudeUpstreamErrorWithCooling(statusCode int, headers http.Header, body []byte, modelLevelCooling bool) error {
+	now := time.Now()
 	var retryAfter *time.Duration
 	if statusCode == http.StatusTooManyRequests || (statusCode >= 400 && statusCode < 600) {
-		retryAfter = helps.ParseClaudeRateLimitReset(headers, time.Now())
+		retryAfter = helps.ParseClaudeRateLimitReset(headers, now)
 	}
 	err := statusErr{code: statusCode, msg: string(body), retryAfter: retryAfter, providerRetryAfter: providerRetryAfterHeader(statusCode, headers)}
 	if statusCode == http.StatusTooManyRequests {
+		var resetAt time.Time
+		if retryAfter != nil && *retryAfter > 0 {
+			resetAt = now.Add(*retryAfter)
+		}
+
 		if !modelLevelCooling && helps.ClaudeHeadersIndicateUnifiedRateLimitRejection(headers) {
-			return claudeRateLimitError{statusErr: err, credentialScoped: true}
+			return claudeRateLimitError{statusErr: err, credentialScoped: true, resetAt: resetAt}
 		}
 		if claudeBodyIndicatesFastModeCredits(body) {
 			return claudeEntitlementError{err}
 		}
 		// Ordinary model-level Claude 429 (not a unified 5h/7d rejection)
-		return claudeRateLimitError{statusErr: err, credentialScoped: false}
+		return claudeRateLimitError{statusErr: err, credentialScoped: false, resetAt: resetAt}
 	}
 	return err
 }

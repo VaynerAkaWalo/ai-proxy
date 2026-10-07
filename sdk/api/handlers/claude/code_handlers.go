@@ -395,7 +395,7 @@ func (h *ClaudeCodeAPIHandler) WriteErrorResponse(c *gin.Context, msg *interface
 			}
 		}
 		appendClaudeAPIResponse(c, body)
-		setClaudeRateLimitResetHeaders(c.Writer.Header(), status, time.Now())
+		setClaudeRateLimitResetHeaders(c.Writer.Header(), status, time.Now(), msg.Error)
 		if !c.Writer.Written() && c.Writer.Header().Get("Content-Type") == "" {
 			c.Writer.Header().Set("Content-Type", "application/json")
 		}
@@ -420,7 +420,11 @@ func (h *ClaudeCodeAPIHandler) WriteErrorResponse(c *gin.Context, msg *interface
 		}
 	}
 
-	setClaudeRateLimitResetHeaders(c.Writer.Header(), status, time.Now())
+	var upstreamErr error
+	if msg != nil {
+		upstreamErr = msg.Error
+	}
+	setClaudeRateLimitResetHeaders(c.Writer.Header(), status, time.Now(), upstreamErr)
 
 	body, err := json.Marshal(h.toClaudeError(msg))
 	if err != nil {

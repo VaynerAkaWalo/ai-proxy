@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,9 +13,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers"
+	claudehandler "github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers/claude"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
@@ -135,6 +139,25 @@ func TestClaudeExecutor_HonorsAnthropicRateLimitHeaders_ExecuteStream(t *testing
 	maxExpected := 5*time.Hour + 35*time.Second
 	if *retryAfter < minExpected || *retryAfter > maxExpected {
 		t.Fatalf("RetryAfter = %v, want between %v and %v (5h window)", *retryAfter, minExpected, maxExpected)
+	}
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	handler := &claudehandler.ClaudeCodeAPIHandler{}
+	handler.WriteErrorResponse(c, handlers.ExecutionErrorMessage(fmt.Errorf("execution failed: %w", err)))
+
+	if recorder.Code != http.StatusTooManyRequests {
+		t.Fatalf("response status = %d, want 429", recorder.Code)
+	}
+	if got := recorder.Header().Get("Anthropic-Ratelimit-Unified-Status"); got != "rejected" {
+		t.Fatalf("unified status = %q, want rejected", got)
+	}
+	reset, errParse := strconv.ParseInt(recorder.Header().Get("Anthropic-Ratelimit-Unified-Reset"), 10, 64)
+	if errParse != nil || reset < fiveHourReset || reset > fiveHourReset+31 {
+		t.Fatalf("unified reset = %d, want upstream reset plus cooldown fuzz, error %v", reset, errParse)
+	}
+	if got := recorder.Header().Get("Anthropic-Ratelimit-Unified-Representative-Claim"); got != "" {
+		t.Fatalf("unexpected subscription claim %q", got)
 	}
 }
 

@@ -38,7 +38,7 @@ func TestClaudeRateLimitResetHeaders(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			headers := http.Header{"Retry-After": {tt.retryAfter}}
-			setClaudeRateLimitResetHeaders(headers, tt.status, tt.now)
+			setClaudeRateLimitResetHeaders(headers, tt.status, tt.now, nil)
 
 			if got := headers.Get("Anthropic-Ratelimit-Unified-Reset"); got != tt.wantReset {
 				t.Fatalf("unified reset = %q, want %q", got, tt.wantReset)
@@ -68,7 +68,7 @@ func TestClaudeRateLimitResetHeadersPreserveUpstream(t *testing.T) {
 	headers.Set("Anthropic-Ratelimit-Unified-Status", "allowed")
 	headers.Set("Anthropic-Ratelimit-Unified-Representative-Claim", "seven_day")
 
-	setClaudeRateLimitResetHeaders(headers, http.StatusTooManyRequests, now)
+	setClaudeRateLimitResetHeaders(headers, http.StatusTooManyRequests, now, nil)
 
 	if got := headers.Get("Anthropic-Ratelimit-Unified-Reset"); got != "1791414000" {
 		t.Fatalf("unified reset = %q, want upstream reset", got)
@@ -78,6 +78,43 @@ func TestClaudeRateLimitResetHeadersPreserveUpstream(t *testing.T) {
 	}
 	if got := headers.Get("Anthropic-Ratelimit-Unified-Representative-Claim"); got != "seven_day" {
 		t.Fatalf("unified claim = %q, want upstream claim", got)
+	}
+}
+
+type claudeResetError struct {
+	reset time.Time
+}
+
+func (e claudeResetError) Error() string { return "Claude usage limit reached" }
+
+func (e claudeResetError) ClaudeRateLimitReset() time.Time { return e.reset }
+
+func TestClaudeRateLimitResetHeadersFromExecutor(t *testing.T) {
+	now := time.Date(2026, time.October, 7, 22, 0, 0, 0, time.UTC)
+	for _, tt := range []struct {
+		name       string
+		reset      time.Time
+		status     int
+		retryAfter string
+		wantReset  string
+	}{
+		{"future reset", now.Add(time.Hour), 429, "", "1791414000"},
+		{"fractional reset rounds up", now.Add(time.Hour + time.Millisecond), 429, "", "1791414001"},
+		{"expired reset", now.Add(-time.Hour), 429, "", ""},
+		{"missing reset", time.Time{}, 429, "", ""},
+		{"other status", now.Add(time.Hour), 503, "", ""},
+		{"preserve retry after", now.Add(time.Hour), 429, "20", "1791410420"},
+		{"invalid retry falls back", now.Add(time.Hour), 429, "later", "1791414000"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			headers := http.Header{"Retry-After": {tt.retryAfter}}
+			err := fmt.Errorf("dispatch failed: %w", claudeResetError{reset: tt.reset})
+			setClaudeRateLimitResetHeaders(headers, tt.status, now, err)
+
+			if got := headers.Get("Anthropic-Ratelimit-Unified-Reset"); got != tt.wantReset {
+				t.Fatalf("unified reset = %q, want %q", got, tt.wantReset)
+			}
+		})
 	}
 }
 
