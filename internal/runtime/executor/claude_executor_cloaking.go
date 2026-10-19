@@ -217,7 +217,7 @@ func resolveClaudeContinuityTags(
 	// The currentDate reminder is pinned to the session on its first request so
 	// a local-midnight flip between requests cannot rewrite it and invalidate
 	// the prompt-cache prefix in front of the whole conversation.
-	pinnedDate := helps.PinClaudeSessionDate(continuityKey, claudeCodeLocalDate(claudeCodeCurrentTime(cfg, auth)))
+	pinnedDate := resolveClaudeSessionPinnedDate(cfg, auth, payload, continuityKey, sessionID)
 
 	if existingPromptID != "" {
 		promptID = existingPromptID
@@ -310,8 +310,9 @@ const claudeCodeFableReportingOutcomes = `# Reporting outcomes
 
 Report what actually happened, not what you intended. When you say something is done, sent, saved, fixed, or verified, that claim must rest on a result you observed in this session — tool output, the file as it now reads, the page as it now loads — not on what the step should have produced. If you did not check, say you did not check. If any step failed, was skipped, or came back different from what you expected, say so in the first sentence of your report, before anything else, even when the rest of the work succeeded. Never quietly work around a failure in a way that makes it look resolved; a problem the user can see is recoverable, one your summary hides is not. When you stop before the task is complete, your first line says so plainly and names what is left. Do not describe partial work as done, and do not let a summary read as more certain than the evidence behind it.`
 
-func checkSystemInstructionsWithMode(payload []byte, strictMode bool) []byte {
-	return checkSystemInstructionsWithSigningMode(payload, strictMode, false, "2.1.280", "cli", "")
+func checkSystemInstructionsWithMode(payload []byte, strictMode bool, keepCallerSystemTopLevel ...bool) []byte {
+	keepAtTopLevel := len(keepCallerSystemTopLevel) > 0 && keepCallerSystemTopLevel[0]
+	return checkSystemInstructionsWithSigningMode(payload, strictMode, false, "2.1.280", "cli", "", keepAtTopLevel)
 }
 
 // checkSystemInstructionsWithSigningMode keeps the top-level system in Claude
@@ -319,8 +320,9 @@ func checkSystemInstructionsWithMode(payload []byte, strictMode bool) []byte {
 // mid-conversation system message after the first user turn, where supported
 // Claude models give it operator-level authority without changing the cached
 // top-level prefix.
-func checkSystemInstructionsWithSigningMode(payload []byte, strictMode bool, cchSigning bool, version, entrypoint, workload string) []byte {
-	return checkSystemInstructionsWithSigningModeAt(payload, strictMode, cchSigning, version, entrypoint, workload, claudeCodeLocalDate(time.Now()), false, "", "", "")
+func checkSystemInstructionsWithSigningMode(payload []byte, strictMode bool, cchSigning bool, version, entrypoint, workload string, keepCallerSystemTopLevel ...bool) []byte {
+	keepAtTopLevel := len(keepCallerSystemTopLevel) > 0 && keepCallerSystemTopLevel[0]
+	return checkSystemInstructionsWithSigningModeAt(payload, strictMode, cchSigning, version, entrypoint, workload, claudeCodeLocalDate(time.Now()), false, "", "", keepAtTopLevel, "")
 }
 
 // isClaudeFable51Model reports whether the model is specifically Fable 5.1 / Mythos 5.1,
@@ -406,6 +408,7 @@ func checkSystemInstructionsWithSigningModeAt(
 	currentDate string,
 	isSubagent bool,
 	prevReq, promptID string,
+	keepCallerSystemTopLevel bool,
 	turnOrigin ...string,
 ) []byte {
 	system := gjson.GetBytes(payload, "system")
@@ -444,7 +447,7 @@ func checkSystemInstructionsWithSigningModeAt(
 	}
 	if claudeUsesLegacySystemReminder(payload) {
 		payload = prependClaudeSystemReminderBlocksToFirstUserMessage(payload, forwardedSystemBlocks, isExplicit)
-	} else if claudeMidConversationSystemMessagesAtEnd(payload) {
+	} else if keepCallerSystemTopLevel && claudeMidConversationSystemMessagesAtEnd(payload) {
 		for _, block := range forwardedSystemBlocks {
 			systemBlocks = append(systemBlocks, buildForwardedSystemBlock(block.Text, block, isExplicit))
 		}
@@ -463,11 +466,16 @@ func checkSystemInstructionsWithSigningModeAt(
 // tokens aligned with the request the caller is about to send while preventing a
 // third-party system prompt from reaching Anthropic in the system slot.
 func relocateClaudeSystemPromptForCountTokens(payload []byte, strictMode bool, explicitCacheMode ...bool) []byte {
+	isExplicit := (len(explicitCacheMode) > 0 && explicitCacheMode[0]) || isExplicitPromptCacheMode(payload)
+	return relocateClaudeSystemPromptForCountTokensWithPolicy(payload, strictMode, isExplicit, false)
+}
+
+func relocateClaudeSystemPromptForCountTokensWithPolicy(payload []byte, strictMode, explicitCacheMode, keepCallerSystemTopLevel bool) []byte {
 	system := gjson.GetBytes(payload, "system")
 	if !system.Exists() {
 		return payload
 	}
-	isExplicit := (len(explicitCacheMode) > 0 && explicitCacheMode[0]) || isExplicitPromptCacheMode(payload)
+	isExplicit := explicitCacheMode
 	// Strict mode drops caller prompts on the Messages path, so it must not
 	// reintroduce them here either.
 	var forwardedSystemBlocks []forwardedClaudeSystemPromptBlock
@@ -498,7 +506,7 @@ func relocateClaudeSystemPromptForCountTokens(payload []byte, strictMode bool, e
 	if claudeUsesLegacySystemReminder(payload) {
 		return prependClaudeSystemReminderBlocksToFirstUserMessage(payload, forwardedSystemBlocks, isExplicit)
 	}
-	if claudeMidConversationSystemMessagesAtEnd(payload) {
+	if keepCallerSystemTopLevel && claudeMidConversationSystemMessagesAtEnd(payload) {
 		blocks := make([]string, 0, len(forwardedSystemBlocks))
 		for _, block := range forwardedSystemBlocks {
 			blocks = append(blocks, buildForwardedSystemBlock(block.Text, block, isExplicit))
@@ -845,6 +853,28 @@ func claudeHistoryHasAdvisorCallOrResult(payload []byte) bool {
 	return false
 }
 
+// claudeLeadingUserRunEnd skips directive-only system turns because Anthropic
+// accepts them at any position. They must not cause caller system blocks to be
+// inserted before a subsequent user turn.
+func claudeLeadingUserRunEnd(messageBlocks []gjson.Result, firstUserIdx int) int {
+	insertAt := firstUserIdx + 1
+	for insertAt < len(messageBlocks) {
+		message := messageBlocks[insertAt]
+		if message.Get("role").String() != "user" && !isClaudeSystemDirectiveMessage(message) {
+			break
+		}
+		insertAt++
+	}
+	return insertAt
+}
+
+func isClaudeSystemDirectiveMessage(message gjson.Result) bool {
+	content := message.Get("content")
+	return message.Get("role").String() == "system" &&
+		message.Get("output_config").Exists() &&
+		content.IsArray() && len(content.Array()) == 0
+}
+
 func claudeMidConversationSystemMessagesAtEnd(payload []byte) bool {
 	firstUserIdx := firstClaudeUserMessageIndex(payload)
 	if firstUserIdx < 0 {
@@ -856,11 +886,8 @@ func claudeMidConversationSystemMessagesAtEnd(payload []byte) bool {
 		return false
 	}
 	messageBlocks := messages.Array()
-	insertAt := firstUserIdx + 1
-	for insertAt < len(messageBlocks) && messageBlocks[insertAt].Get("role").String() == "user" {
-		insertAt++
-	}
-	return insertAt > firstUserIdx+1 && insertAt == len(messageBlocks)
+	insertAt := claudeLeadingUserRunEnd(messageBlocks, firstUserIdx)
+	return insertAt == len(messageBlocks) || insertAt > firstUserIdx+1
 }
 
 func insertClaudeMidConversationSystemMessages(payload []byte, texts []string) []byte {
@@ -882,10 +909,7 @@ func insertClaudeMidConversationSystemBlocks(payload []byte, blocks []forwardedC
 		return payload
 	}
 	messageBlocks := messages.Array()
-	insertAt := firstUserIdx + 1
-	for insertAt < len(messageBlocks) && messageBlocks[insertAt].Get("role").String() == "user" {
-		insertAt++
-	}
+	insertAt := claudeLeadingUserRunEnd(messageBlocks, firstUserIdx)
 	if len(messageBlocks)-insertAt >= len(blocks) {
 		matches := true
 		for idx, block := range blocks {
@@ -968,10 +992,7 @@ func captureClaudeCodeSystemPlacement(before, after []byte, cloaked bool) claude
 	if firstUserIdx < 0 {
 		return claudeCodeSystemPlacementState{}
 	}
-	insertAt := firstUserIdx + 1
-	for insertAt < len(beforeMessages) && beforeMessages[insertAt].Get("role").String() == "user" {
-		insertAt++
-	}
+	insertAt := claudeLeadingUserRunEnd(beforeMessages, firstUserIdx)
 	if insertAt+len(texts) > len(afterMessages) {
 		return claudeCodeSystemPlacementState{}
 	}
@@ -1280,8 +1301,121 @@ func isClaudeCodeContextReminder(text string) bool {
 	return strings.HasPrefix(text, "<system-reminder>") && strings.Contains(text, "</system-reminder>")
 }
 
+const claudeCodeCurrentDateReminderPrefix = "<system-reminder>\nAs you answer the user's questions, you can use the following context:\n# currentDate\nToday's date is "
+
 func isClaudeCodeCurrentDateReminder(text string) bool {
-	return strings.HasPrefix(text, "<system-reminder>\nAs you answer the user's questions, you can use the following context:\n# currentDate\nToday's date is ")
+	return strings.HasPrefix(text, claudeCodeCurrentDateReminderPrefix)
+}
+
+// claudeCodeCurrentDateReminderDate extracts the YYYY-MM-DD date from a
+// currentDate reminder, or "" when the reminder date is not a valid date.
+func claudeCodeCurrentDateReminderDate(text string) string {
+	rest, found := strings.CutPrefix(text, claudeCodeCurrentDateReminderPrefix)
+	if !found || len(rest) < len("2006-01-02.") || rest[len("2006-01-02")] != '.' {
+		return ""
+	}
+	date := rest[:len("2006-01-02")]
+	if _, errParse := time.Parse("2006-01-02", date); errParse != nil {
+		return ""
+	}
+	return date
+}
+
+func claudeSessionDatePinRetention(cfg *config.Config) time.Duration {
+	if cfg == nil {
+		return 0
+	}
+	return cfg.Claude.SessionDatePinRetention()
+}
+
+// claudeCallerCurrentDateReminderDate returns the date of the first valid
+// caller-supplied currentDate reminder in the first user message.
+func claudeCallerCurrentDateReminderDate(payload []byte) string {
+	firstUserIdx := firstClaudeUserMessageIndex(payload)
+	if firstUserIdx < 0 {
+		return ""
+	}
+	content := gjson.GetBytes(payload, fmt.Sprintf("messages.%d.content", firstUserIdx))
+	if content.Type == gjson.String {
+		return claudeCodeCurrentDateReminderDate(content.String())
+	}
+	if !content.IsArray() {
+		return ""
+	}
+	for _, block := range content.Array() {
+		if block.Get("type").String() != "text" {
+			continue
+		}
+		if date := claudeCodeCurrentDateReminderDate(block.Get("text").String()); date != "" {
+			return date
+		}
+	}
+	return ""
+}
+
+// stripClaudeCodeCurrentDateReminder removes a leading caller currentDate
+// reminder from string content so the injection path replaces it with the
+// canonical reminder instead of duplicating it.
+func stripClaudeCodeCurrentDateReminder(text string) string {
+	if claudeCodeCurrentDateReminderDate(text) == "" {
+		return text
+	}
+	end := strings.Index(text, "</system-reminder>")
+	if end < 0 {
+		return text
+	}
+	return strings.TrimLeft(text[end+len("</system-reminder>"):], "\n")
+}
+
+// stripFirstUserClaudeCodeCurrentDateReminder strips a leading caller
+// currentDate reminder from a string-form first user message before the
+// cloaking pipeline converts the content into blocks, preserving user text.
+func stripFirstUserClaudeCodeCurrentDateReminder(payload []byte) []byte {
+	firstUserIdx := firstClaudeUserMessageIndex(payload)
+	if firstUserIdx < 0 {
+		return payload
+	}
+	contentPath := fmt.Sprintf("messages.%d.content", firstUserIdx)
+	content := gjson.GetBytes(payload, contentPath)
+	if content.Type != gjson.String {
+		return payload
+	}
+	stripped := stripClaudeCodeCurrentDateReminder(content.String())
+	if stripped == content.String() {
+		return payload
+	}
+	updated, errSet := sjson.SetBytes(payload, contentPath, stripped)
+	if errSet != nil {
+		return payload
+	}
+	return updated
+}
+
+// resolveClaudeSessionPinnedDate resolves the session date pin. With a
+// configured retention, an existing pin always wins; a caller-supplied
+// currentDate reminder only seeds the first anchor, so a later caller date
+// cannot rewrite the established conversation prefix.
+func resolveClaudeSessionPinnedDate(
+	cfg *config.Config,
+	auth *cliproxyauth.Auth,
+	payload []byte,
+	continuityKey string,
+	sessionID string,
+) string {
+	retention := claudeSessionDatePinRetention(cfg)
+	candidate := claudeCodeLocalDate(claudeCodeCurrentTime(cfg, auth))
+	if retention <= 0 {
+		return helps.PinClaudeSessionDate(continuityKey, sessionID, candidate, retention)
+	}
+	if existing := helps.LookupClaudeSessionDatePin(sessionID, retention); existing != "" {
+		// Re-pin the anchored date so the sliding retention refreshes
+		// without ever changing the established prefix.
+		return helps.PinClaudeSessionDate(continuityKey, sessionID, existing, retention)
+	}
+	if callerDate := claudeCallerCurrentDateReminderDate(payload); callerDate != "" {
+		candidate = callerDate
+	}
+	return helps.PinClaudeSessionDate(continuityKey, sessionID, candidate, retention)
 }
 
 // injectClaudeCodeCurrentDate stamps the currentDate reminder into the first
@@ -1450,12 +1584,86 @@ type claudeWirePolicy struct {
 	ProfileClaudeCodeCLI bool // request fingerprint looks like Claude Code CLI
 	ConfirmedClaudeCode  bool
 	Cloak                bool
+	Uncloak              bool
 }
 
 type claudeCloakSettings struct {
 	strictMode     bool
 	sensitiveWords []string
 	cacheUserID    bool
+}
+
+func isClaudeCodeIdentitySystemText(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	return trimmed == claudeCodeCLIIdentity ||
+		trimmed == "You are a Claude agent, built on Anthropic's Claude Agent SDK."
+}
+
+func stripClaudeCodeSystemBlocks(payload []byte) []byte {
+	payload = util.StripClaudeCodeAttributionSystem(payload)
+	system := gjson.GetBytes(payload, "system")
+	if !system.Exists() {
+		return payload
+	}
+	if system.Type == gjson.String {
+		if !isClaudeCodeIdentitySystemText(system.String()) {
+			return payload
+		}
+		if updated, errDelete := sjson.DeleteBytes(payload, "system"); errDelete == nil {
+			return updated
+		}
+		return payload
+	}
+	if !system.IsArray() {
+		return payload
+	}
+	kept := make([]string, 0, len(system.Array()))
+	removed := false
+	system.ForEach(func(_, block gjson.Result) bool {
+		if block.Get("type").String() == "text" && isClaudeCodeIdentitySystemText(block.Get("text").String()) {
+			removed = true
+			return true
+		}
+		if block.Raw != "" {
+			kept = append(kept, block.Raw)
+		}
+		return true
+	})
+	if !removed {
+		return payload
+	}
+	if len(kept) == 0 {
+		if updated, errDelete := sjson.DeleteBytes(payload, "system"); errDelete == nil {
+			return updated
+		}
+		return payload
+	}
+	if updated, errSet := sjson.SetRawBytes(payload, "system", []byte("["+strings.Join(kept, ",")+"]")); errSet == nil {
+		return updated
+	}
+	return payload
+}
+
+func uncloakClaudeCodePayload(payload []byte, confirmedClaudeCode bool) []byte {
+	payload = stripClaudeCodeSystemBlocks(payload)
+	if metadata := gjson.GetBytes(payload, "metadata"); metadata.Exists() && metadata.IsObject() {
+		if userID := metadata.Get("user_id"); userID.Exists() && (confirmedClaudeCode || helps.IsValidUserID(userID.String())) {
+			if updated, errDelete := sjson.DeleteBytes(payload, "metadata.user_id"); errDelete == nil {
+				payload = updated
+				if remaining := gjson.GetBytes(payload, "metadata"); remaining.Exists() && remaining.IsObject() && len(remaining.Map()) == 0 {
+					if updatedMeta, errDeleteMeta := sjson.DeleteBytes(payload, "metadata"); errDeleteMeta == nil {
+						payload = updatedMeta
+					}
+				}
+			}
+		}
+	}
+	if diag := gjson.GetBytes(payload, "diagnostics"); diag.Exists() && (confirmedClaudeCode || diag.Get("previous_message_id").Exists()) {
+		if updated, errDelete := sjson.DeleteBytes(payload, "diagnostics"); errDelete == nil {
+			payload = updated
+		}
+	}
+	return payload
 }
 
 func resolveClaudeWirePolicy(cfg *config.Config, auth *cliproxyauth.Auth, apiKey string, confirmedClaudeCode bool) (claudeWirePolicy, claudeCloakSettings) {
@@ -1474,12 +1682,14 @@ func resolveClaudeWirePolicy(cfg *config.Config, auth *cliproxyauth.Auth, apiKey
 		sensitiveWords: attrWords,
 		cacheUserID:    attrCache,
 	}
+	explicitMode := strings.ToLower(strings.TrimSpace(attrMode))
 	if attrMode != "" {
 		cloakMode = attrMode
 	}
 	if cloakCfg != nil {
 		if mode := strings.TrimSpace(cloakCfg.Mode); mode != "" {
 			cloakMode = mode
+			explicitMode = strings.ToLower(mode)
 		}
 		if cloakCfg.StrictMode {
 			settings.strictMode = true
@@ -1494,23 +1704,25 @@ func resolveClaudeWirePolicy(cfg *config.Config, auth *cliproxyauth.Auth, apiKey
 
 	fp := resolveClaudeFingerprintPolicy(cfg, auth, apiKey)
 	cloakConfigured := cloakCfg != nil || attrMode != "" || attrStrict || len(attrWords) > 0 || attrCache
+	trimmedMode := strings.ToLower(strings.TrimSpace(cloakMode))
+	uncloak := !fp.ProfileClaudeCodeCLI && (explicitMode == "never" || explicitMode == "uncloak")
 	policy := claudeWirePolicy{
 		OAuth:                fp.AuthIsOAuthToken,
 		ProfileClaudeCodeCLI: fp.ProfileClaudeCodeCLI,
 		ConfirmedClaudeCode:  confirmedClaudeCode,
-		Cloak:                (fp.ProfileClaudeCodeCLI || cloakConfigured) && !confirmedClaudeCode,
+		Cloak:                (fp.ProfileClaudeCodeCLI || cloakConfigured) && !confirmedClaudeCode && !uncloak,
+		Uncloak:              uncloak,
 	}
 	if confirmedClaudeCode {
-		// Native Claude Code is always a passthrough client. An operator-level
-		// "always" mode may cloak unknown callers, but must not overwrite a
-		// strongly confirmed CLI, sdk-cli, or claude-vscode fingerprint.
+		// Native Claude Code is always a passthrough client unless the
+		// credential explicitly opts out of Claude Code identity via never/uncloak.
 		policy.Cloak = false
 		return policy, settings
 	}
-	switch strings.ToLower(strings.TrimSpace(cloakMode)) {
+	switch trimmedMode {
 	case "always":
 		policy.Cloak = true
-	case "never":
+	case "never", "uncloak":
 		policy.Cloak = false
 	default:
 		// Auto applies the CLI cloak only to real Claude OAuth credentials,
@@ -1547,6 +1759,9 @@ func applyCloakingInternal(
 ) ([]byte, bool, error) {
 	policy, settings := resolveClaudeWirePolicy(cfg, auth, apiKey, confirmedClaudeCode)
 	if !policy.Cloak {
+		if policy.Uncloak {
+			payload = uncloakClaudeCodePayload(payload, confirmedClaudeCode)
+		}
 		return payload, false, nil
 	}
 	isExplicit := (len(explicitCacheMode) > 0 && explicitCacheMode[0]) || isExplicitPromptCacheModeContext(ctx)
@@ -1587,6 +1802,11 @@ func applyCloakingInternal(
 	if pinnedDate == "" {
 		pinnedDate = claudeCodeLocalDate(claudeCodeCurrentTime(cfg, auth))
 	}
+	if !isProbeOrHelper && claudeSessionDatePinRetention(cfg) > 0 {
+		// Strip a string-form caller reminder before the pipeline turns the
+		// content into blocks, so user text is never dropped with it.
+		payload = stripFirstUserClaudeCodeCurrentDateReminder(payload)
+	}
 
 	turnOrigin := ""
 	if !isProbeOrHelper && !isSubagent {
@@ -1607,6 +1827,7 @@ func applyCloakingInternal(
 		isSubagent,
 		prevReq,
 		promptID,
+		!policy.OAuth, // OAuth top-level caller prompts trigger Anthropic's third-party classifier (#6432).
 		turnOriginArgs...,
 	)
 
@@ -1881,7 +2102,7 @@ func countCacheControls(payload []byte) int {
 	system := gjson.GetBytes(payload, "system")
 	if system.IsArray() {
 		system.ForEach(func(_, item gjson.Result) bool {
-			if item.Get("cache_control").Exists() {
+			if isValidClaudeCacheControl(item.Get("cache_control")) {
 				count++
 			}
 			return true
@@ -1892,7 +2113,7 @@ func countCacheControls(payload []byte) int {
 	tools := gjson.GetBytes(payload, "tools")
 	if tools.IsArray() {
 		tools.ForEach(func(_, item gjson.Result) bool {
-			if item.Get("cache_control").Exists() {
+			if isValidClaudeCacheControl(item.Get("cache_control")) {
 				count++
 			}
 			return true
@@ -1906,7 +2127,7 @@ func countCacheControls(payload []byte) int {
 			content := msg.Get("content")
 			if content.IsArray() {
 				content.ForEach(func(_, item gjson.Result) bool {
-					if item.Get("cache_control").Exists() {
+					if isValidClaudeCacheControl(item.Get("cache_control")) {
 						count++
 					}
 					return true
@@ -1941,11 +2162,7 @@ func normalizeCacheControlTTL(payload []byte) []byte {
 
 	processBlock := func(path string, obj gjson.Result) {
 		cc := obj.Get("cache_control")
-		if !cc.Exists() {
-			return
-		}
-		if !cc.IsObject() {
-			seen5m = true
+		if !isValidClaudeCacheControl(cc) {
 			return
 		}
 		ttl := cc.Get("ttl")
@@ -2040,7 +2257,7 @@ func enforceCacheControlLimit(payload []byte, maxBlocks int) []byte {
 	if system.IsArray() {
 		lastIdx := -1
 		system.ForEach(func(idx, item gjson.Result) bool {
-			if item.Get("cache_control").Exists() {
+			if isValidClaudeCacheControl(item.Get("cache_control")) {
 				lastIdx = int(idx.Int())
 			}
 			return true
@@ -2054,7 +2271,7 @@ func enforceCacheControlLimit(payload []byte, maxBlocks int) []byte {
 				if i == lastIdx {
 					return true
 				}
-				if !item.Get("cache_control").Exists() {
+				if !isValidClaudeCacheControl(item.Get("cache_control")) {
 					return true
 				}
 				path := fmt.Sprintf("system.%d.cache_control", i)
@@ -2076,7 +2293,7 @@ func enforceCacheControlLimit(payload []byte, maxBlocks int) []byte {
 	if tools.IsArray() {
 		lastIdx := -1
 		tools.ForEach(func(idx, item gjson.Result) bool {
-			if item.Get("cache_control").Exists() {
+			if isValidClaudeCacheControl(item.Get("cache_control")) {
 				lastIdx = int(idx.Int())
 			}
 			return true
@@ -2090,7 +2307,7 @@ func enforceCacheControlLimit(payload []byte, maxBlocks int) []byte {
 				if i == lastIdx {
 					return true
 				}
-				if !item.Get("cache_control").Exists() {
+				if !isValidClaudeCacheControl(item.Get("cache_control")) {
 					return true
 				}
 				path := fmt.Sprintf("tools.%d.cache_control", i)
@@ -2122,7 +2339,7 @@ func enforceCacheControlLimit(payload []byte, maxBlocks int) []byte {
 				if excess <= 0 {
 					return false
 				}
-				if !item.Get("cache_control").Exists() {
+				if !isValidClaudeCacheControl(item.Get("cache_control")) {
 					return true
 				}
 				path := fmt.Sprintf("messages.%d.content.%d.cache_control", int(msgIdx.Int()), int(itemIdx.Int()))
@@ -2147,7 +2364,7 @@ func enforceCacheControlLimit(payload []byte, maxBlocks int) []byte {
 			if excess <= 0 {
 				return false
 			}
-			if !item.Get("cache_control").Exists() {
+			if !isValidClaudeCacheControl(item.Get("cache_control")) {
 				return true
 			}
 			path := fmt.Sprintf("system.%d.cache_control", int(idx.Int()))
@@ -2170,7 +2387,7 @@ func enforceCacheControlLimit(payload []byte, maxBlocks int) []byte {
 			if excess <= 0 {
 				return false
 			}
-			if !item.Get("cache_control").Exists() {
+			if !isValidClaudeCacheControl(item.Get("cache_control")) {
 				return true
 			}
 			path := fmt.Sprintf("tools.%d.cache_control", int(idx.Int()))
@@ -2305,7 +2522,7 @@ func messageContentHasCacheControl(content gjson.Result) bool {
 	if content.IsArray() {
 		found := false
 		content.ForEach(func(_, item gjson.Result) bool {
-			if item.Get("cache_control").Exists() {
+			if isValidClaudeCacheControl(item.Get("cache_control")) {
 				found = true
 				return false
 			}
@@ -2329,7 +2546,7 @@ func injectToolsCacheControl(payload []byte) []byte {
 	hasCacheControlInTools := false
 	lastEligibleToolIndex := -1
 	tools.ForEach(func(index, tool gjson.Result) bool {
-		if tool.Get("cache_control").Exists() {
+		if isValidClaudeCacheControl(tool.Get("cache_control")) {
 			hasCacheControlInTools = true
 			return false
 		}
@@ -2370,7 +2587,7 @@ func injectSystemCacheControl(payload []byte) []byte {
 		// Check if ANY system element already has cache_control
 		hasCacheControlInSystem := false
 		system.ForEach(func(_, item gjson.Result) bool {
-			if item.Get("cache_control").Exists() {
+			if isValidClaudeCacheControl(item.Get("cache_control")) {
 				hasCacheControlInSystem = true
 				return false
 			}

@@ -18,8 +18,11 @@ import (
 
 func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (resp cliproxyexecutor.Response, err error) {
 	ctx = helps.EnsureSessionContext(ctx, opts, req.Payload)
-	if opts.Alt == "responses/compact" {
-		return resp, statusErr{code: http.StatusNotImplemented, msg: "/responses/compact not supported"}
+	if errExpand := expandClaudeResponsesCompaction(&req, &opts); errExpand != nil {
+		return resp, statusErr{code: http.StatusBadRequest, msg: errExpand.Error()}
+	}
+	if claudeResponsesCompactionRequested(req, opts) {
+		return e.executeClaudeCompaction(ctx, auth, req, opts)
 	}
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
 	upstreamModel := e.upstreamModel(baseModel)
@@ -41,6 +44,7 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 		reporter.SetUpstreamModel(upstreamModel)
 	}
 	from := opts.SourceFormat
+	ctx, req, opts = e.applyNativeToolSearchFallback(ctx, auth, from, upstreamModel, req, opts)
 	responseFormat := cliproxyexecutor.ResponseFormatOrSource(opts)
 	to := sdktranslator.FromString("claude")
 	var replayScope claudeThinkingReplayScope
@@ -76,13 +80,18 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 	}
 
 	isCompat := helps.APIKeyModelIsCompat(req)
-	originalTranslated, body := helps.TranslateRequestPairWithAPIKeyModelCompatibility(ctx, opts.Headers, e.cfg, from, to, baseModel, originalPayload, req.Payload, upstreamStream, isCompat)
+	originalTranslated, body, err := helps.TranslateRequestPairReturningError(ctx, opts.Headers, e.cfg, from, to, baseModel, originalPayload, req.Payload, upstreamStream, isCompat)
+	if err != nil {
+		return resp, err
+	}
 	body = helps.SetStringIfDifferent(body, "model", upstreamModel)
 
 	body, err = helps.ApplyRequestThinking(body, req, opts, from.String(), to.String(), e.Identifier())
 	if err != nil {
 		return resp, err
 	}
+	webSearchSessionKey, webSearchTTL, webSearchLimit := e.claudeWebSearchResultCacheScope(ctx, from, req, opts, originalPayload)
+	body = helps.RestoreClaudeWebSearchResults(body, webSearchSessionKey, webSearchTTL)
 	if rebuildMidSystemMessageEnabled(e.cfg, auth) {
 		body = rebuildMidSystemMessagesToTopLevel(body)
 	}
@@ -230,10 +239,14 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 		}
 	}
 	bodyForUpstream = stripDefaultKimiClaudeCodeAttribution(auth, url, fp.ProfileClaudeCodeCLI, bodyForUpstream)
+	if claudeCompactionSummaryFromContext(ctx) {
+		bodyForUpstream = finalizeClaudeCompactionSummaryBody(bodyForUpstream)
+	}
+	bodyForUpstream = applyClaudePreservedThinkingBinding(bodyForUpstream)
 	// User rules match the fully prepared business body and are applied only once.
 	var touchedPayloadPaths map[string]bool
 	bodyForUpstream, touchedPayloadPaths = helps.ApplyPayloadConfigWithTrackedPaths(
-		e.cfg, baseModel, to.String(), from.String(), "", bodyForUpstream, originalTranslated,
+		e.cfg, baseModel, to.String(), from.String(), "", bodyForUpstream, stripTranslatedDefaultMaxTokens(from, originalPayload, originalTranslated),
 		helps.PayloadRequestedModel(opts, req.Model), helps.PayloadRequestPath(opts), opts.Headers,
 		"diagnostics",
 	)
@@ -383,6 +396,7 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 		}
 	}
 	data = e.restoreResponseModel(data, req.Model)
+	helps.RecordClaudeWebSearchResults(webSearchSessionKey, data, webSearchTTL, webSearchLimit)
 	cacheClaudeThinkingReplayResponse(ctx, replayScope, data)
 	var param any
 	out := sdktranslator.TranslateNonStream(

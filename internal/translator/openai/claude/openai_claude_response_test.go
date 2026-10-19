@@ -123,6 +123,81 @@ func TestStreaming_LateUsageOnlyDoesNotEmitAfterMessageStop(t *testing.T) {
 	}
 }
 
+func TestStreaming_SplitUsageFinishReasonThenTrailingUsageChunk_PreservesCachedTokens(t *testing.T) {
+	tests := []struct {
+		name         string
+		firstChunks  []string
+		finishChunk  string
+		wantStopType string
+	}{
+		{
+			name: "text content with stop finish_reason",
+			firstChunks: []string{
+				`{"id":"c1","model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"hello"},"finish_reason":null}]}`,
+			},
+			finishChunk:  `{"id":"c1","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":140025,"completion_tokens":741,"total_tokens":140766,"prompt_tokens_details":{}}}`,
+			wantStopType: "end_turn",
+		},
+		{
+			name: "tool call with tool_calls finish_reason",
+			firstChunks: []string{
+				`{"id":"c1","model":"m","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"a.txt\"}"}}]},"finish_reason":null}]}`,
+			},
+			finishChunk:  `{"id":"c1","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":140025,"completion_tokens":741,"total_tokens":140766,"prompt_tokens_details":{}}}`,
+			wantStopType: "tool_use",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			trailingUsageChunk := `{"id":"c1","model":"m","choices":[],"usage":{"prompt_tokens":140025,"completion_tokens":741,"total_tokens":140766,"prompt_tokens_details":{"cached_tokens":139136}}}`
+			allChunks := append(append([]string{}, tt.firstChunks...), tt.finishChunk, trailingUsageChunk)
+
+			events := runStream(t, streamReq, allChunks...)
+
+			if got := countByType(events, "message_delta"); got != 1 {
+				t.Fatalf("expected exactly one message_delta, got %d (events=%+v)", got, events)
+			}
+			if got := countByType(events, "message_stop"); got != 1 {
+				t.Fatalf("expected exactly one message_stop, got %d (events=%+v)", got, events)
+			}
+			if len(events) == 0 || events[len(events)-1].Type != "message_stop" {
+				t.Fatalf("message_stop must be the last semantic event (events=%+v)", events)
+			}
+
+			var deltaPayload string
+			for _, e := range events {
+				if e.Type == "message_delta" {
+					deltaPayload = e.Payload
+					break
+				}
+			}
+			if deltaPayload == "" {
+				t.Fatalf("missing message_delta event in %+v", events)
+			}
+
+			if gotStop := gjson.Get(deltaPayload, "delta.stop_reason").String(); gotStop != tt.wantStopType {
+				t.Fatalf("stop_reason = %q, want %q", gotStop, tt.wantStopType)
+			}
+
+			cached := gjson.Get(deltaPayload, "usage.cache_read_input_tokens").Int()
+			if cached != 139136 {
+				t.Fatalf("expected cache_read_input_tokens = 139136, got %d (payload=%s)", cached, deltaPayload)
+			}
+
+			input := gjson.Get(deltaPayload, "usage.input_tokens").Int()
+			if input != 889 {
+				t.Fatalf("expected deducted input_tokens = 889, got %d (payload=%s)", input, deltaPayload)
+			}
+
+			output := gjson.Get(deltaPayload, "usage.output_tokens").Int()
+			if output != 741 {
+				t.Fatalf("expected output_tokens = 741, got %d (payload=%s)", output, deltaPayload)
+			}
+		})
+	}
+}
+
 func TestConvertOpenAIResponseToClaude_StreamIgnoresNullToolNameDelta(t *testing.T) {
 	originalRequest := []byte(streamReq)
 	var param any
@@ -1391,5 +1466,81 @@ func TestExtractOpenAIUsage(t *testing.T) {
 				t.Fatalf("cache_write_tokens = %d, want %d", cacheWrite, tt.wantCacheWriteTokens)
 			}
 		})
+	}
+}
+
+const streamFlagTestChunk = `data: {"id":"chatcmpl_1","model":"test-model","created":1,"choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}`
+
+func TestConvertOpenAIResponseToClaude_StreamFlagResolvedOncePerStream(t *testing.T) {
+	var param any
+	first := ConvertOpenAIResponseToClaude(context.Background(), "test-model", []byte(`{"model":"m","stream":true}`), nil, []byte(streamFlagTestChunk), &param)
+	if !bytes.Contains(bytes.Join(first, nil), []byte("content_block_delta")) {
+		t.Fatalf("expected streaming events on first chunk, got %q", bytes.Join(first, nil))
+	}
+
+	// An empty original request on subsequent chunks would parse as non-streaming if re-read.
+	second := ConvertOpenAIResponseToClaude(context.Background(), "test-model", nil, nil, []byte(streamFlagTestChunk), &param)
+	if !bytes.Contains(bytes.Join(second, nil), []byte("content_block_delta")) {
+		t.Fatalf("expected cached stream flag to be reused on subsequent chunks, got %q", bytes.Join(second, nil))
+	}
+}
+
+func TestConvertOpenAIResponseToClaude_ToolNameMapResolvedOnceWhenNoTools(t *testing.T) {
+	var param any
+	first := ConvertOpenAIResponseToClaude(context.Background(), "test-model", []byte(`{"model":"m","stream":true}`), nil, []byte(streamFlagTestChunk), &param)
+	if !bytes.Contains(bytes.Join(first, nil), []byte("content_block_delta")) {
+		t.Fatalf("expected streaming events on first chunk, got %q", bytes.Join(first, nil))
+	}
+
+	// Even when the first chunk resolved ToolNameMap to nil (no tools in request),
+	// later chunks must not re-parse originalRequestRawJSON to rebuild ToolNameMap.
+	toolChunk := `data: {"id":"chatcmpl_1","model":"test-model","created":1,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"bash","arguments":"{}"}}]},"finish_reason":null}]}`
+	laterReqWithTools := []byte(`{"model":"m","stream":true,"tools":[{"name":"Bash"}]}`)
+	second := ConvertOpenAIResponseToClaude(context.Background(), "test-model", laterReqWithTools, nil, []byte(toolChunk), &param)
+	joined := bytes.Join(second, nil)
+	if !bytes.Contains(joined, []byte(`"name":"bash"`)) {
+		t.Fatalf("expected cached nil ToolNameMap to be reused without re-parsing originalRequestRawJSON, got %q", joined)
+	}
+}
+
+func TestConvertOpenAIResponseToClaude_NonStreamingRequestStaysNonStreaming(t *testing.T) {
+	for _, original := range []string{`{"model":"m"}`, `{"model":"m","stream":false}`} {
+		var param any
+		out := ConvertOpenAIResponseToClaude(context.Background(), "test-model", []byte(original), nil, []byte(streamFlagTestChunk), &param)
+		joined := bytes.Join(out, nil)
+		if len(out) != 1 || gjson.GetBytes(joined, "type").String() != "message" {
+			t.Fatalf("request %s expected a single non-streaming message payload, got %q", original, joined)
+		}
+		if bytes.Contains(joined, []byte("content_block_delta")) {
+			t.Fatalf("request %s must not produce streaming events, got %q", original, joined)
+		}
+
+		// Subsequent call with stream:true must still use the cached non-streaming decision.
+		second := ConvertOpenAIResponseToClaude(context.Background(), "test-model", []byte(`{"model":"m","stream":true}`), nil, []byte(streamFlagTestChunk), &param)
+		secondJoined := bytes.Join(second, nil)
+		if len(second) != 1 || gjson.GetBytes(secondJoined, "type").String() != "message" || bytes.Contains(secondJoined, []byte("content_block_delta")) {
+			t.Fatalf("request %s expected cached non-streaming flag on second call, got %q", original, secondJoined)
+		}
+	}
+}
+
+func BenchmarkConvertOpenAIResponseToClaude_LargeOriginalRequest(b *testing.B) {
+	var sb strings.Builder
+	sb.WriteString(`{"model":"m","tools":[`)
+	for i := 0; i < 60; i++ {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		fmt.Fprintf(&sb, `{"name":"tool_%d","description":%q,"input_schema":{"type":"object","properties":{"a":{"type":"string"}}}}`, i, strings.Repeat("x", 5000))
+	}
+	sb.WriteString(`],"stream":true}`)
+	original := []byte(sb.String())
+	chunk := []byte(streamFlagTestChunk)
+
+	var param any
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ConvertOpenAIResponseToClaude(context.Background(), "test-model", original, nil, chunk, &param)
 	}
 }
