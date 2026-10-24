@@ -269,3 +269,26 @@ func TestExecutorProvidersFallBackToCatalogProvider(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudeSpeedTiers(t *testing.T) {
+	b := testPriceBook(t,
+		config.PriceRate{Provider: "anthropic", Model: "m", Currency: "USD", Input: priceString("1")},
+		config.PriceRate{Provider: "anthropic", Model: "m", Tier: "fast", Currency: "USD", Input: priceString("6")},
+	)
+	event := AccountingEvent{Provider: "claude", ExecutedModel: "m", Tokens: &AccountingTokens{Breakdown: NewSubsetTokenBreakdown(1, 0, 0, 0, 0, 1)}}
+
+	event.ReportedServiceTier = "standard"
+	if e := b.Estimate(event); e.Status != "priced" || *e.Amount != "1.000000000" || e.Tier != "" {
+		t.Fatalf("standard: %+v", e)
+	}
+
+	event.ReportedServiceTier = "fast"
+	if e := b.Estimate(event); e.Status != "priced" || *e.Amount != "6.000000000" || e.Tier != "fast" {
+		t.Fatalf("fast: %+v", e)
+	}
+
+	baseOnly := testPriceBook(t, config.PriceRate{Provider: "anthropic", Model: "m", Currency: "USD", Input: priceString("1")})
+	if e := baseOnly.Estimate(event); e.Status != "unpriced" {
+		t.Fatalf("fast without a fast rate must not price at the base rate: %+v", e)
+	}
+}

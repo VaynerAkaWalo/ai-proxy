@@ -4,15 +4,15 @@ This fork tracks [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CL
 
 ## Accounting and usage
 
-- Every request attempt produces a versioned accounting event, persisted in a bounded local bbolt outbox (`observability.accounting-outbox`). See [docs/accounting-outbox.md](docs/accounting-outbox.md).
-- Events are priced with API-equivalent estimates from the LiteLLM model catalog, refreshed periodically, with a model fallback chain and provider mapping for Codex, Claude, Antigravity, AI Studio and Kimi.
+- Optionally, every request attempt produces a versioned accounting event that is queued into a bounded local bbolt outbox (`observability.accounting-outbox`). Persistence is best effort, so queue pressure, storage errors or a crash can drop events. See [docs/accounting-outbox.md](docs/accounting-outbox.md).
+- Events are priced with API-equivalent estimates from the LiteLLM model catalog, refreshed periodically, with a model fallback chain and provider mapping for Codex, Claude, Antigravity, AI Studio and Kimi. Claude `speed: standard` prices at the base rate, `fast` needs an explicit `fast` tier override.
 - Priced events are exported to a stock LiteLLM instance, with each proxy access key mapped to a LiteLLM virtual key. See [docs/litellm-exporter.md](docs/litellm-exporter.md) and [docs/direct-harness-cutover.md](docs/direct-harness-cutover.md).
 - Streams cancelled mid-send still publish an interrupted usage record for Codex (SSE and WebSocket), xAI WebSocket, OpenAI-compatible and Claude.
 
 ## Routing and rate limits
 
 - `routing.strategy: nearest-reset` picks the credential whose quota window resets soonest, falling back to round robin when no reset time is known.
-- A provider 429 forwards the upstream `Retry-After` header instead of only the proxy's own cooldown.
+- A 429 from Claude or an OpenAI-compatible provider forwards the upstream `Retry-After` header instead of only the proxy's own cooldown.
 - Claude responses expose `Anthropic-Ratelimit-Unified-Reset` and `-Status` from the upstream reset deadline, so SDK clients can wait for the right moment even without `Retry-After`.
 - The management Claude usage lookup is cached across quota refreshes and honors `Retry-After` deadlines.
 

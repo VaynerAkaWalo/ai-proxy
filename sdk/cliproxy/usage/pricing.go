@@ -103,10 +103,7 @@ func (b *PriceBook) Estimate(event AccountingEvent) *CostEstimate {
 		return e
 	}
 	e.Snapshot = b.snapshot
-	tier := event.ReportedServiceTier
-	if tier == "" || tier == "default" {
-		tier = ""
-	}
+	tier := baseServiceTier(event.ReportedServiceTier)
 	provider, model, index := b.lookup(event, tier, breakdown.Input.TotalTokens)
 	e.Provider, e.Model, e.Tier = provider, model, tier
 	if index < 0 {
@@ -169,6 +166,17 @@ var priceProviderFallbacks = map[string]string{
 	"antigravity": "gemini",
 	"aistudio":    "gemini",
 	"kimi":        "moonshot",
+}
+
+// baseServiceTier maps reported tiers billed at the base rate to the untiered catalog entry.
+// Anthropic reports usage.speed "standard" for normal requests, while "fast" stays a separate
+// tier because it is billed at a premium the catalog import does not carry.
+func baseServiceTier(tier string) string {
+	switch tier {
+	case "", "default", "standard":
+		return ""
+	}
+	return tier
 }
 
 func (b *PriceBook) lookup(event AccountingEvent, tier string, contextTokens int64) (string, string, int) {

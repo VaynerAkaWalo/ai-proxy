@@ -431,6 +431,22 @@ func TestParseClaudeStreamUsage_MessageStart(t *testing.T) {
 	}
 }
 
+func TestClaudeStandardSpeedPricesAtBaseRate(t *testing.T) {
+	inputRate, outputRate := "1", "2"
+	book, err := usage.NewPriceBook([]config.PriceRate{{Provider: "anthropic", Model: "claude-m", Currency: "USD", Input: &inputRate, Output: &outputRate}}, nil, []string{"test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	detail := ParseClaudeUsage([]byte(`{"usage":{"input_tokens":10,"output_tokens":5,"speed":"standard"}}`))
+	record := usage.Record{Provider: "claude", Model: "claude-m", ResponseServiceTier: detail.ResponseServiceTier, Detail: detail}
+	event := usage.NewAccountingEvent(context.Background(), record)
+
+	if e := book.Estimate(event); e.Status != "priced" || *e.Amount != "20.000000000" {
+		t.Fatalf("estimate = %+v", e)
+	}
+}
+
 func TestParseClaudeUsageReportsSpeedAsResponseServiceTier(t *testing.T) {
 	for _, tc := range []struct{ body, want string }{
 		{`{"usage":{"input_tokens":10,"output_tokens":5,"speed":"fast"}}`, "fast"},
