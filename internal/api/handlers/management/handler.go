@@ -62,6 +62,8 @@ type Handler struct {
 	pluginStoreRateLimiter  *pluginstore.GitHubRateLimiter
 	pluginReleases          pluginReleaseCache
 	claudeUsage             claudeUsageCache
+	siwcOAuthFactory        func(*config.Config) siwcOAuthService
+	siwcCommitMu            sync.Mutex
 }
 
 type configReloadSnapshot struct {
@@ -137,6 +139,13 @@ func (h *Handler) SetConfig(cfg *config.Config) {
 		return
 	}
 	h.cfg = cloned
+}
+
+// configSnapshot reads h.cfg under h.mu, for code that runs outside the request holding it.
+func (h *Handler) configSnapshot() *config.Config {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.cfg
 }
 
 // isStaleConfigFileSnapshotLocked reports whether cfg was parsed from config file
