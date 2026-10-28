@@ -195,14 +195,14 @@ func TestInvalidPriceSnapshot(t *testing.T) {
 	}
 }
 
-func TestCatalogConditionalPricesUseBaseRate(t *testing.T) {
+func TestCatalogConditionalPricesUseContextBand(t *testing.T) {
 	rates, err := importLiteLLM([]byte(`{"m":{"litellm_provider":"openai","mode":"chat","input_cost_per_token":0.000001,"input_cost_per_token_above_200k_tokens":0.000002,"input_cost_per_token_priority":0.5}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	event := AccountingEvent{Provider: "openai", ExecutedModel: "m", Tokens: &AccountingTokens{Breakdown: NewSubsetTokenBreakdown(200001, 0, 0, 0, 0, 200001)}}
 	e := testPriceBook(t, rates...).Estimate(event)
-	if e.Status != "priced" || *e.Amount != "0.200001000" {
+	if e.Status != "priced" || *e.Amount != "0.400002000" {
 		t.Fatalf("%+v", e)
 	}
 }
@@ -290,5 +290,63 @@ func TestClaudeSpeedTiers(t *testing.T) {
 	baseOnly := testPriceBook(t, config.PriceRate{Provider: "anthropic", Model: "m", Currency: "USD", Input: priceString("1")})
 	if e := baseOnly.Estimate(event); e.Status != "unpriced" {
 		t.Fatalf("fast without a fast rate must not price at the base rate: %+v", e)
+	}
+}
+
+func TestCatalogContextBoundariesAndTierIsolation(t *testing.T) {
+	rates, err := importLiteLLM([]byte(`{"m":{"litellm_provider":"openai","mode":"chat","input_cost_per_token":0.000001,"output_cost_per_token":0.000003,"input_cost_per_token_above_200k_tokens":0.000002,"input_cost_per_token_above_272k_tokens":0.000004,"input_cost_per_token_priority":0.000005,"input_cost_per_token_above_200k_tokens_priority":0.000006,"cache_creation_input_token_cost_above_1hr":1}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	book := testPriceBook(t, rates...)
+
+	for _, tc := range []struct {
+		tokens       int64
+		tier, amount string
+	}{
+		{200000, "", "0.200000000"}, {200001, "", "0.400002000"},
+		{272000, "", "0.544000000"}, {272001, "", "1.088004000"},
+		{200000, "priority", "1.000000000"}, {200001, "priority", "1.200006000"},
+	} {
+		event := AccountingEvent{Provider: "openai", ExecutedModel: "m", ReportedServiceTier: tc.tier, Tokens: &AccountingTokens{Breakdown: NewSubsetTokenBreakdown(tc.tokens, 0, 0, 0, 0, tc.tokens)}}
+		e := book.Estimate(event)
+		if e.Status != "priced" || e.Amount == nil || *e.Amount != tc.amount {
+			t.Fatalf("%+v: %+v", tc, e)
+		}
+		if tc.tier == "" && (e.Rates.Output == nil || *e.Rates.Output != "0.000003000000000000" || e.Rates.CacheCreation != nil) {
+			t.Fatalf("incorrect inherited buckets: %+v", e.Rates)
+		}
+		if tc.tier == "priority" && e.Rates.Output != nil {
+			t.Fatal("standard price leaked into priority")
+		}
+	}
+}
+
+func TestCatalogContextThresholdsAreModelSpecific(t *testing.T) {
+	rates, err := importLiteLLM([]byte(`{
+		"small":{"litellm_provider":"openai","mode":"chat","input_cost_per_token":0.000001,"input_cost_per_token_above_128k_tokens":0.000002},
+		"large":{"litellm_provider":"openai","mode":"chat","input_cost_per_token":0.000001,"input_cost_per_token_above_500k_tokens":0.000003}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	book := testPriceBook(t, rates...)
+
+	for _, tc := range []struct {
+		model  string
+		tokens int64
+		amount string
+	}{
+		{"small", 128001, "0.256002000"},
+		{"large", 128001, "0.128001000"},
+		{"large", 500000, "0.500000000"},
+		{"large", 500001, "1.500003000"},
+	} {
+		event := AccountingEvent{Provider: "openai", ExecutedModel: tc.model, Tokens: &AccountingTokens{Breakdown: NewSubsetTokenBreakdown(tc.tokens, 0, 0, 0, 0, tc.tokens)}}
+		e := book.Estimate(event)
+
+		if e.Status != "priced" || e.Amount == nil || *e.Amount != tc.amount {
+			t.Fatalf("%+v: %+v", tc, e)
+		}
 	}
 }
