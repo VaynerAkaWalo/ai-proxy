@@ -97,9 +97,6 @@ func (c AccountingOutboxConfig) Defaults() AccountingOutboxConfig {
 
 func (c AccountingOutboxConfig) Validate() error {
 	c = c.Defaults()
-	if c.IDV.Enabled && c.LiteLLM.Enabled {
-		return fmt.Errorf("accounting outbox supports one exporter at a time: choose IDV or LiteLLM")
-	}
 	if c.IDV.Enabled {
 		u, err := url.Parse(c.IDV.URL)
 		if !c.Enabled || err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || !idvDatasetPattern.MatchString(c.IDV.Dataset) {

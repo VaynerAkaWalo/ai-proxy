@@ -50,6 +50,9 @@ type OutboxStats struct {
 }
 
 type Outbox struct {
+	primaryDestination  string
+	secondaryDeliveries bool
+
 	prices      atomic.Pointer[PriceBook]
 	stopRefresh context.CancelFunc
 	db          *bolt.DB
@@ -92,6 +95,9 @@ func OpenOutbox(cfg config.AccountingOutboxConfig) (*Outbox, error) {
 					return err
 				}
 			}
+			if err := o.initializeDestinations(tx); err != nil {
+				return err
+			}
 			if cfg.IDV.Enabled {
 				return o.requeueAmbiguousIDV(tx)
 			}
@@ -115,7 +121,8 @@ func OpenOutbox(cfg config.AccountingOutboxConfig) (*Outbox, error) {
 
 func (o *Outbox) requeueAmbiguousIDV(tx *bolt.Tx) error {
 	// Only the IDV receiver replaces duplicate attempts without incrementing external budget counters.
-	cursor := tx.Bucket(deliveriesBucket).Cursor()
+	bucket := o.deliveriesFor("idv").bucket
+	cursor := tx.Bucket(bucket).Cursor()
 	for key, raw := cursor.First(); key != nil; key, raw = cursor.Next() {
 		var delivery Delivery
 		if err := json.Unmarshal(raw, &delivery); err != nil {
@@ -132,7 +139,7 @@ func (o *Outbox) requeueAmbiguousIDV(tx *bolt.Tx) error {
 		if err != nil {
 			return err
 		}
-		if err := tx.Bucket(deliveriesBucket).Put(key, updated); err != nil {
+		if err := tx.Bucket(bucket).Put(key, updated); err != nil {
 			return err
 		}
 	}
@@ -235,15 +242,20 @@ func (o *Outbox) insert(raw []byte) error {
 		if err := o.checkDisk(tx); err != nil {
 			return err
 		}
-		delivery, err := json.Marshal(Delivery{State: DeliveryPending, UpdatedAt: o.now()})
-		if err != nil {
-			return err
-		}
 		if err := events.Put(key, raw); err != nil {
 			return err
 		}
-		if err := tx.Bucket(deliveriesBucket).Put(key, delivery); err != nil {
+		state := DeliveryPending
+		if o.secondaryDeliveries && !o.destinationEnabled(o.primaryDestination) {
+			state = DeliveryAcknowledged
+		}
+		if err := putDelivery(tx.Bucket(deliveriesBucket), key, Delivery{State: state, UpdatedAt: o.now()}); err != nil {
 			return err
+		}
+		if o.secondaryDeliveries && o.destinationEnabled(o.secondaryDestination()) {
+			if err := putDelivery(tx.Bucket(secondaryDeliveriesBucket), key, Delivery{State: DeliveryPending, UpdatedAt: o.now()}); err != nil {
+				return err
+			}
 		}
 		return events.SetSequence(events.Sequence() + 1)
 	})
@@ -290,6 +302,22 @@ func (o *Outbox) repriceUnpricedEvent(id string) (AccountingEvent, error) {
 			return nil
 		}
 
+		var idvDelivery *Delivery
+		idvBucket := o.deliveriesFor("idv").bucket
+		if o.secondaryDeliveries {
+			if raw := tx.Bucket(idvBucket).Get(key); raw != nil {
+				var delivery Delivery
+				if err := json.Unmarshal(raw, &delivery); err != nil {
+					return err
+				}
+				// An IDV request in flight must finish before its payload can change.
+				if delivery.State == DeliveryAmbiguous {
+					return nil
+				}
+				idvDelivery = &delivery
+			}
+		}
+
 		estimate := o.prices.Load().Estimate(event)
 		if estimate.Status != "priced" {
 			return nil
@@ -305,19 +333,33 @@ func (o *Outbox) repriceUnpricedEvent(id string) (AccountingEvent, error) {
 		if err := o.checkDisk(tx); err != nil {
 			return err
 		}
+		if idvDelivery != nil {
+			idvDelivery.State, idvDelivery.UpdatedAt, idvDelivery.NextAttemptAt = DeliveryPending, o.now(), time.Time{}
+			if err := putDelivery(tx.Bucket(idvBucket), key, *idvDelivery); err != nil {
+				return err
+			}
+		}
 		return events.Put(key, updated)
 	})
 	return event, err
 }
 
 func (o *Outbox) Delivery(id string) (Delivery, error) {
+	return o.delivery(deliveriesBucket, id)
+}
+
+func (o *Outbox) delivery(bucket []byte, id string) (Delivery, error) {
 	var delivery Delivery
-	err := o.view(func(tx *bolt.Tx) error { return readDelivery(tx, id, &delivery) })
+	err := o.view(func(tx *bolt.Tx) error { return readDeliveryFrom(tx, bucket, id, &delivery) })
 	return delivery, err
 }
 
 func readDelivery(tx *bolt.Tx, id string, delivery *Delivery) error {
-	raw := tx.Bucket(deliveriesBucket).Get([]byte(id))
+	return readDeliveryFrom(tx, deliveriesBucket, id, delivery)
+}
+
+func readDeliveryFrom(tx *bolt.Tx, bucket []byte, id string, delivery *Delivery) error {
+	raw := tx.Bucket(bucket).Get([]byte(id))
 	if raw == nil {
 		return os.ErrNotExist
 	}
@@ -326,10 +368,14 @@ func readDelivery(tx *bolt.Tx, id string, delivery *Delivery) error {
 
 // Claim provides transactional single-worker ownership. Ambiguous claims require explicit resolution, never automatic retry.
 func (o *Outbox) Claim(id string) (bool, error) {
+	return o.claim(deliveriesBucket, id)
+}
+
+func (o *Outbox) claim(bucket []byte, id string) (bool, error) {
 	claimed := false
 	err := o.update(func(tx *bolt.Tx) error {
 		var delivery Delivery
-		if err := readDelivery(tx, id, &delivery); err != nil {
+		if err := readDeliveryFrom(tx, bucket, id, &delivery); err != nil {
 			return err
 		}
 		if (delivery.State != DeliveryPending && delivery.State != DeliveryRetryable) || delivery.NextAttemptAt.After(o.now()) {
@@ -345,7 +391,7 @@ func (o *Outbox) Claim(id string) (bool, error) {
 		if err != nil {
 			return err
 		}
-		if err := tx.Bucket(deliveriesBucket).Put([]byte(id), raw); err != nil {
+		if err := tx.Bucket(bucket).Put([]byte(id), raw); err != nil {
 			return err
 		}
 		claimed = true
@@ -356,12 +402,16 @@ func (o *Outbox) Claim(id string) (bool, error) {
 
 // Resolve records an exporter outcome. Retryable must mean the exporter knows the event was not accepted.
 func (o *Outbox) Resolve(id string, attempt uint64, state DeliveryState, next time.Time) error {
+	return o.resolve(deliveriesBucket, id, attempt, state, next)
+}
+
+func (o *Outbox) resolve(bucket []byte, id string, attempt uint64, state DeliveryState, next time.Time) error {
 	if state != DeliveryAcknowledged && state != DeliveryRetryable && state != DeliveryAmbiguous && state != DeliveryRejected {
 		return errors.New("invalid delivery outcome")
 	}
 	return o.update(func(tx *bolt.Tx) error {
 		var delivery Delivery
-		if err := readDelivery(tx, id, &delivery); err != nil {
+		if err := readDeliveryFrom(tx, bucket, id, &delivery); err != nil {
 			return err
 		}
 		if delivery.State != DeliveryAmbiguous || delivery.Attempts != attempt {
@@ -375,7 +425,7 @@ func (o *Outbox) Resolve(id string, attempt uint64, state DeliveryState, next ti
 		if err != nil {
 			return err
 		}
-		return tx.Bucket(deliveriesBucket).Put([]byte(id), raw)
+		return tx.Bucket(bucket).Put([]byte(id), raw)
 	})
 }
 
@@ -393,7 +443,16 @@ func (o *Outbox) prune(tx *bolt.Tx) error {
 		if err := json.Unmarshal(raw, &delivery); err != nil {
 			return err
 		}
-		if (delivery.State == DeliveryAcknowledged || delivery.State == DeliveryRejected) && delivery.UpdatedAt.Before(cutoff) {
+		secondary, err := secondaryDelivery(tx, key)
+		if err != nil {
+			return err
+		}
+		if deliveryTerminal(delivery) && delivery.UpdatedAt.Before(cutoff) && (secondary == nil || (deliveryTerminal(*secondary) && secondary.UpdatedAt.Before(cutoff))) {
+			if bucket := tx.Bucket(secondaryDeliveriesBucket); bucket != nil {
+				if err := bucket.Delete(key); err != nil {
+					return err
+				}
+			}
 			if err := tx.Bucket(eventsBucket).Delete(key); err != nil {
 				return err
 			}
@@ -424,7 +483,11 @@ func (o *Outbox) Stats() (OutboxStats, error) {
 			if err := json.Unmarshal(raw, &delivery); err != nil {
 				return err
 			}
-			if delivery.State == DeliveryAcknowledged || delivery.State == DeliveryRejected {
+			secondary, err := secondaryDelivery(tx, key)
+			if err != nil {
+				return err
+			}
+			if deliveryTerminal(delivery) && (secondary == nil || deliveryTerminal(*secondary)) {
 				return nil
 			}
 			stats.Backlog++
@@ -591,22 +654,44 @@ func validateOutbox(tx *bolt.Tx) error {
 	if count != events.Sequence() {
 		return errors.New("invalid accounting event count")
 	}
-	return deliveries.ForEach(func(key, raw []byte) error {
-		if events.Get(key) == nil {
-			return errors.New("orphan accounting delivery")
+	for _, name := range [][]byte{deliveriesBucket, secondaryDeliveriesBucket} {
+		bucket := tx.Bucket(name)
+		if bucket == nil {
+			continue
 		}
-		return nil
-	})
+		if err := bucket.ForEach(func(key, raw []byte) error {
+			if events.Get(key) == nil {
+				return errors.New("orphan accounting delivery")
+			}
+			var delivery Delivery
+			if err := json.Unmarshal(raw, &delivery); err != nil {
+				return err
+			}
+			switch delivery.State {
+			case DeliveryPending, DeliveryAcknowledged, DeliveryRetryable, DeliveryAmbiguous, DeliveryRejected:
+				return nil
+			default:
+				return errors.New("invalid stored delivery state")
+			}
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ReadyIDs selects bounded due deliveries without changing their state.
 func (o *Outbox) ReadyIDs(limit int) ([]string, error) {
+	return o.readyIDs(deliveriesBucket, limit)
+}
+
+func (o *Outbox) readyIDs(bucket []byte, limit int) ([]string, error) {
 	ids := []string{}
 	if o.db == nil {
 		return ids, nil
 	}
 	err := o.view(func(tx *bolt.Tx) error {
-		cursor := tx.Bucket(deliveriesBucket).Cursor()
+		cursor := tx.Bucket(bucket).Cursor()
 		for key, raw := cursor.First(); key != nil && len(ids) < limit; key, raw = cursor.Next() {
 			var d Delivery
 			if err := json.Unmarshal(raw, &d); err != nil {

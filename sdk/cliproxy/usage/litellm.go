@@ -27,6 +27,8 @@ type callbackRecord struct {
 }
 
 type LiteLLMExporter struct {
+	deliveries deliveryQueue
+
 	outbox *Outbox
 	cfg    config.LiteLLMExporterConfig
 	client *http.Client
@@ -40,7 +42,7 @@ type LiteLLMExporter struct {
 func NewLiteLLMExporter(outbox *Outbox, cfg config.LiteLLMExporterConfig) *LiteLLMExporter {
 	// Redirects could forward the admin credential or change POST semantics.
 	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: (&net.Dialer{}).DialContext, ForceAttemptHTTP2: true}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	return &LiteLLMExporter{outbox: outbox, cfg: cfg, client: client, key: os.Getenv(cfg.AdminKeyEnv), status: "disabled"}
+	return &LiteLLMExporter{deliveries: outbox.deliveriesFor("litellm"), outbox: outbox, cfg: cfg, client: client, key: os.Getenv(cfg.AdminKeyEnv), status: "disabled"}
 }
 
 func (e *LiteLLMExporter) Status() string {
@@ -153,7 +155,7 @@ func (e *LiteLLMExporter) ExportOnce(ctx context.Context) error {
 		e.setStatus("credential_unavailable: set the configured admin-key-env in central secrets")
 		return nil
 	}
-	ids, err := e.outbox.ReadyIDs(64)
+	ids, err := e.deliveries.ReadyIDs(64)
 	if err != nil {
 		return err
 	}
@@ -169,20 +171,20 @@ func (e *LiteLLMExporter) ExportOnce(ctx context.Context) error {
 			return err
 		}
 		record, errPayload := successPayload(event, e.cfg.Clients[event.ClientKeyID])
-		ok, err := e.outbox.Claim(id)
+		ok, err := e.deliveries.Claim(id)
 		if err != nil {
 			return err
 		}
 		if !ok {
 			continue
 		}
-		delivery, err := e.outbox.Delivery(id)
+		delivery, err := e.deliveries.Delivery(id)
 		if err != nil {
 			return err
 		}
 		if event.Status != "succeeded" {
 			// Stock LiteLLM drops replayed failures, so there is nothing it could record.
-			if err := e.outbox.Resolve(id, delivery.Attempts, DeliveryRejected, time.Time{}); err != nil {
+			if err := e.deliveries.Resolve(id, delivery.Attempts, DeliveryRejected, time.Time{}); err != nil {
 				return err
 			}
 			continue
@@ -192,7 +194,7 @@ func (e *LiteLLMExporter) ExportOnce(ctx context.Context) error {
 			_, mapped := e.cfg.Clients[event.ClientKeyID]
 			log.Warnf("LiteLLM export held for event %s (provider=%s model=%s response_model=%q tier=%q priced_as=%s client_mapped=%t estimate=%s missing=%v): %v", event.ExecutionID, event.Provider, event.ExecutedModel, event.ResponseModel, event.ReportedServiceTier, estimateLookup(event.Estimate), mapped, estimateStatus(event.Estimate), estimateMissing(event.Estimate), errPayload)
 			// No request has been sent. Retain the event for configuration repair.
-			if err := e.outbox.Resolve(id, delivery.Attempts, DeliveryRetryable, e.outbox.now().Add(time.Hour)); err != nil {
+			if err := e.deliveries.Resolve(id, delivery.Attempts, DeliveryRetryable, e.outbox.now().Add(time.Hour)); err != nil {
 				return err
 			}
 			continue
@@ -254,7 +256,7 @@ func (e *LiteLLMExporter) ExportOnce(ctx context.Context) error {
 		if hold {
 			delay = time.Hour
 		}
-		if err := e.outbox.Resolve(id, attempts[i], outcomes[i], e.outbox.now().Add(delay)); err != nil {
+		if err := e.deliveries.Resolve(id, attempts[i], outcomes[i], e.outbox.now().Add(delay)); err != nil {
 			return err
 		}
 	}
