@@ -8,6 +8,12 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+type accountingExporter interface {
+	Start()
+	Stop(context.Context) error
+	Status() string
+}
+
 func (s *Service) startAccountingOutbox() error {
 	s.accountingMu.Lock()
 	defer s.accountingMu.Unlock()
@@ -33,7 +39,11 @@ func (s *Service) startAccountingOutbox() error {
 		return err
 	}
 	s.accountingOutbox, s.accountingDetach, s.accountingShutdownSeconds = outbox, detach, cfg.ShutdownSeconds
-	s.accountingExporter = usage.NewLiteLLMExporter(outbox, cfg.LiteLLM)
+	if cfg.IDV.Enabled {
+		s.accountingExporter = usage.NewIDVExporter(outbox, cfg.IDV)
+	} else {
+		s.accountingExporter = usage.NewLiteLLMExporter(outbox, cfg.LiteLLM)
+	}
 	s.accountingExporter.Start()
 	return nil
 }

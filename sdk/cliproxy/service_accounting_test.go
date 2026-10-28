@@ -52,3 +52,20 @@ func TestServiceAccountingCorruptionDoesNotStopInference(t *testing.T) {
 		t.Fatalf("%+v %v", stats, err)
 	}
 }
+
+func TestServiceAccountingSelectsIDV(t *testing.T) {
+	s := &Service{cfg: &config.Config{AccountingOutbox: config.AccountingOutboxConfig{
+		Enabled:  true,
+		DataPath: t.TempDir(),
+		IDV:      config.IDVExporterConfig{Enabled: true, URL: "http://localhost:3000", Dataset: "test/usage"},
+	}}}
+
+	if err := s.startAccountingOutbox(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.stopAccountingOutbox(context.Background())
+
+	if _, ok := s.accountingExporter.(*usage.IDVExporter); !ok {
+		t.Fatalf("wrong exporter: %T", s.accountingExporter)
+	}
+}

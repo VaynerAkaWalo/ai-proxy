@@ -31,7 +31,7 @@ type Service struct {
 	cfg *config.Config
 
 	accountingMu              sync.Mutex
-	accountingExporter        *usage.LiteLLMExporter
+	accountingExporter        accountingExporter
 	accountingOutbox          *usage.Outbox
 	accountingDetach          func()
 	accountingShutdownSeconds int
