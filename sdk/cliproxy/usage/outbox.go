@@ -92,6 +92,9 @@ func OpenOutbox(cfg config.AccountingOutboxConfig) (*Outbox, error) {
 					return err
 				}
 			}
+			if cfg.IDV.Enabled {
+				return o.requeueAmbiguousIDV(tx)
+			}
 			return nil
 		})
 	}
@@ -108,6 +111,32 @@ func OpenOutbox(cfg config.AccountingOutboxConfig) (*Outbox, error) {
 	}
 	go o.run()
 	return o, nil
+}
+
+func (o *Outbox) requeueAmbiguousIDV(tx *bolt.Tx) error {
+	// Only the IDV receiver replaces duplicate attempts without incrementing external budget counters.
+	cursor := tx.Bucket(deliveriesBucket).Cursor()
+	for key, raw := cursor.First(); key != nil; key, raw = cursor.Next() {
+		var delivery Delivery
+		if err := json.Unmarshal(raw, &delivery); err != nil {
+			return err
+		}
+		if delivery.State != DeliveryAmbiguous {
+			continue
+		}
+		if err := o.checkDisk(tx); err != nil {
+			return err
+		}
+		delivery.State, delivery.UpdatedAt, delivery.NextAttemptAt = DeliveryRetryable, o.now(), time.Time{}
+		updated, err := json.Marshal(delivery)
+		if err != nil {
+			return err
+		}
+		if err := tx.Bucket(deliveriesBucket).Put(key, updated); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // HandleAccountingEvent only queues a bounded serialized snapshot. It is not a durable acknowledgement.

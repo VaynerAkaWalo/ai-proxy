@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -49,8 +50,18 @@ type LiteLLMIdentity struct {
 	TeamID  string `yaml:"team-id" json:"team-id"`
 }
 
+type IDVExporterConfig struct {
+	Enabled  bool   `yaml:"enabled" json:"enabled"`
+	URL      string `yaml:"url" json:"url"`
+	Dataset  string `yaml:"dataset" json:"dataset"`
+	TokenEnv string `yaml:"token-env" json:"token-env"`
+}
+
+var idvDatasetPattern = regexp.MustCompile(`^[a-z0-9_-]+/[a-z0-9_]+$`)
+
 type AccountingOutboxConfig struct {
 	LiteLLM         LiteLLMExporterConfig `yaml:"litellm" json:"litellm"`
+	IDV             IDVExporterConfig     `yaml:"idv" json:"idv"`
 	Pricing         PricingConfig         `yaml:"pricing" json:"pricing"`
 	Enabled         bool                  `yaml:"enabled" json:"enabled"`
 	DataPath        string                `yaml:"data-path" json:"data-path"`
@@ -85,6 +96,15 @@ func (c AccountingOutboxConfig) Defaults() AccountingOutboxConfig {
 
 func (c AccountingOutboxConfig) Validate() error {
 	c = c.Defaults()
+	if c.IDV.Enabled && c.LiteLLM.Enabled {
+		return fmt.Errorf("accounting outbox supports one exporter at a time: choose IDV or LiteLLM")
+	}
+	if c.IDV.Enabled {
+		u, err := url.Parse(c.IDV.URL)
+		if !c.Enabled || err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || !idvDatasetPattern.MatchString(c.IDV.Dataset) {
+			return fmt.Errorf("IDV exporter requires an enabled outbox, HTTP(S) URL without credentials or query, and an owner/name dataset")
+		}
+	}
 	if c.LiteLLM.Enabled {
 		u, err := url.Parse(c.LiteLLM.URL)
 		if !c.Enabled || err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.TrimSpace(c.LiteLLM.AdminKeyEnv) == "" {

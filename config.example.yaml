@@ -1169,6 +1169,11 @@ observability:
     max-events: 100000
     retention-hours: 168
     shutdown-seconds: 5
+    idv:
+      enabled: false # Enable either IDV or LiteLLM, not both.
+      url: "" # IDV base URL. Create a dataset implementing llm_usage@0.1/attempts first.
+      dataset: "" # owner/name
+      token-env: "" # Optional bearer token environment variable for the receiving gateway.
     litellm:
       enabled: false
       url: "" # Stock LiteLLM base URL, use HTTPS outside a trusted local network. Only successful requests are exported.

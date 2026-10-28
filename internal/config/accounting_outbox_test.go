@@ -71,3 +71,30 @@ func TestLiteLLMExporterConfiguration(t *testing.T) {
 		}
 	}
 }
+
+func TestIDVExporterConfiguration(t *testing.T) {
+	cfg := AccountingOutboxConfig{Enabled: true, DataPath: "/data/accounting", IDV: IDVExporterConfig{Enabled: true, URL: "https://analytics.example", Dataset: "pawel/llm_usage"}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, dataset := range []string{"", "../usage", "owner/name/extra", "Owner/name", "owner/name?token=secret"} {
+		invalid := cfg
+		invalid.IDV.Dataset = dataset
+		if err := invalid.Validate(); err == nil {
+			t.Fatalf("accepted dataset %q", dataset)
+		}
+	}
+	for _, url := range []string{"https://user:credential@analytics.example", "https://analytics.example?token=credential", "https://analytics.example#credential", "file:///credential"} {
+		invalid := cfg
+		invalid.IDV.URL = url
+		if err := invalid.Validate(); err == nil {
+			t.Fatal("unsafe URL accepted")
+		}
+	}
+
+	cfg.LiteLLM.Enabled = true
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("two exporters accepted for the same delivery state")
+	}
+}
