@@ -32,6 +32,6 @@ sudo systemctl enable --now ai-proxy.service ai-proxy-update.timer
 
 ## Updates
 
-`ai-proxy-update.timer` pulls the image every 15 minutes and restarts the service when it changed. A restart also re-reads the Vault secrets, so `systemctl restart ai-proxy` picks up a rotated secret.
+`ai-proxy-update.timer` pulls the image every 15 minutes and restarts the service when it changed. A restart also re-reads the Vault secrets, so `systemctl restart ai-proxy` picks up a rotated secret. The timer does not update deployment files. After configuration changes, run `git -C /opt/ai-proxy pull --ff-only` as the checkout owner and restart the service.
 
 Set `AI_PROXY_TAG` in the same env file to pin a `sha-` tag.
