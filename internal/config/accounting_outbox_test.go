@@ -105,8 +105,8 @@ func TestIDVExporterConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg.LiteLLM.Enabled = true
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("two exporters accepted for the same delivery state")
+	cfg.LiteLLM = LiteLLMExporterConfig{Enabled: true, URL: "https://litellm.example", AdminKeyEnv: "LITELLM_KEY"}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }

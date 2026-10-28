@@ -2,6 +2,8 @@ package cliproxy
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
@@ -39,7 +41,12 @@ func (s *Service) startAccountingOutbox() error {
 		return err
 	}
 	s.accountingOutbox, s.accountingDetach, s.accountingShutdownSeconds = outbox, detach, cfg.ShutdownSeconds
-	if cfg.IDV.Enabled {
+	if cfg.IDV.Enabled && cfg.LiteLLM.Enabled {
+		s.accountingExporter = &accountingExporterPair{
+			litellm: usage.NewLiteLLMExporter(outbox, cfg.LiteLLM),
+			idv:     usage.NewIDVExporter(outbox, cfg.IDV),
+		}
+	} else if cfg.IDV.Enabled {
 		s.accountingExporter = usage.NewIDVExporter(outbox, cfg.IDV)
 	} else {
 		s.accountingExporter = usage.NewLiteLLMExporter(outbox, cfg.LiteLLM)
@@ -87,4 +94,27 @@ func (s *Service) AccountingExporterStatus() string {
 		return "disabled"
 	}
 	return s.accountingExporter.Status()
+}
+
+type accountingExporterPair struct {
+	litellm accountingExporter
+	idv     accountingExporter
+}
+
+func (p *accountingExporterPair) Start() {
+	p.litellm.Start()
+	p.idv.Start()
+}
+
+func (p *accountingExporterPair) Stop(ctx context.Context) error {
+	results := make(chan error, 2)
+	for _, exporter := range []accountingExporter{p.litellm, p.idv} {
+		go func() { results <- exporter.Stop(ctx) }()
+	}
+
+	return errors.Join(<-results, <-results)
+}
+
+func (p *accountingExporterPair) Status() string {
+	return fmt.Sprintf("litellm:%s,idv:%s", p.litellm.Status(), p.idv.Status())
 }

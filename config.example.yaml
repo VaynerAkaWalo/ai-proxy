@@ -1170,7 +1170,7 @@ observability:
     retention-hours: 168
     shutdown-seconds: 5
     idv:
-      enabled: false # Enable either IDV or LiteLLM, not both.
+      enabled: false # Can run alongside LiteLLM with independent delivery states.
       url: "" # IDV base URL.
       dataset: "" # owner/name implementing llm_usage@0.1/attempts
       prices-dataset: "" # Optional owner/name implementing llm_usage@0.1/prices.

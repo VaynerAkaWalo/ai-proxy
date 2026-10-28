@@ -17,6 +17,8 @@ import (
 )
 
 type IDVExporter struct {
+	deliveries deliveryQueue
+
 	outbox   *Outbox
 	cfg      config.IDVExporterConfig
 	client   *http.Client
@@ -31,7 +33,7 @@ type IDVExporter struct {
 func NewIDVExporter(outbox *Outbox, cfg config.IDVExporterConfig) *IDVExporter {
 	// A redirect must not forward credentials or change ingestion POST semantics.
 	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: (&net.Dialer{}).DialContext, ForceAttemptHTTP2: true}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	return &IDVExporter{outbox: outbox, cfg: cfg, client: client, token: os.Getenv(cfg.TokenEnv), status: "disabled"}
+	return &IDVExporter{deliveries: outbox.deliveriesFor("idv"), outbox: outbox, cfg: cfg, client: client, token: os.Getenv(cfg.TokenEnv), status: "disabled"}
 }
 
 func (e *IDVExporter) Status() string {
@@ -114,7 +116,7 @@ func (e *IDVExporter) ExportOnce(ctx context.Context) error {
 		return nil
 	}
 
-	ids, err := e.outbox.ReadyIDs(64)
+	ids, err := e.deliveries.ReadyIDs(64)
 	if err != nil {
 		return err
 	}
@@ -130,6 +132,17 @@ func (e *IDVExporter) ExportOnce(ctx context.Context) error {
 		if ctx.Err() != nil {
 			break
 		}
+		ok, err := e.deliveries.Claim(id)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		delivery, err := e.deliveries.Delivery(id)
+		if err != nil {
+			return err
+		}
 		event, err := e.outbox.Event(id)
 		if err != nil {
 			return err
@@ -140,28 +153,16 @@ func (e *IDVExporter) ExportOnce(ctx context.Context) error {
 		if errRow == nil && e.cfg.PricesDataset != "" {
 			price, errPrice = newIDVPriceRow(event.Estimate)
 		}
-
-		ok, err := e.outbox.Claim(id)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			continue
-		}
-		delivery, err := e.outbox.Delivery(id)
-		if err != nil {
-			return err
-		}
 		if errRow != nil {
 			e.setStatus("invalid_event")
-			if err := e.outbox.Resolve(id, delivery.Attempts, DeliveryRejected, time.Time{}); err != nil {
+			if err := e.deliveries.Resolve(id, delivery.Attempts, DeliveryRejected, time.Time{}); err != nil {
 				return err
 			}
 			continue
 		}
 		if errPrice != nil {
 			e.setStatus("invalid_price_record")
-			if err := e.outbox.Resolve(id, delivery.Attempts, DeliveryRetryable, e.outbox.now().Add(time.Hour)); err != nil {
+			if err := e.deliveries.Resolve(id, delivery.Attempts, DeliveryRetryable, e.outbox.now().Add(time.Hour)); err != nil {
 				return err
 			}
 			continue
@@ -196,7 +197,7 @@ func (e *IDVExporter) ExportOnce(ctx context.Context) error {
 		if hold {
 			delay = time.Hour
 		}
-		if err := e.outbox.Resolve(id, attempt, state, e.outbox.now().Add(delay)); err != nil {
+		if err := e.deliveries.Resolve(id, attempt, state, e.outbox.now().Add(delay)); err != nil {
 			return err
 		}
 	}
