@@ -121,6 +121,11 @@ func (e *IDVExporter) ExportOnce(ctx context.Context) error {
 	var body bytes.Buffer
 	encoder := json.NewEncoder(&body)
 	claimed := make(map[string]uint64)
+
+	var pricesBody bytes.Buffer
+	pricesEncoder := json.NewEncoder(&pricesBody)
+	priceIDs := make(map[string]bool)
+
 	for _, id := range ids {
 		if ctx.Err() != nil {
 			break
@@ -130,6 +135,12 @@ func (e *IDVExporter) ExportOnce(ctx context.Context) error {
 			return err
 		}
 		row, errRow := newIDVRow(event)
+		var price *idvPriceRow
+		var errPrice error
+		if errRow == nil && e.cfg.PricesDataset != "" {
+			price, errPrice = newIDVPriceRow(event.Estimate)
+		}
+
 		ok, err := e.outbox.Claim(id)
 		if err != nil {
 			return err
@@ -148,6 +159,22 @@ func (e *IDVExporter) ExportOnce(ctx context.Context) error {
 			}
 			continue
 		}
+		if errPrice != nil {
+			e.setStatus("invalid_price_record")
+			if err := e.outbox.Resolve(id, delivery.Attempts, DeliveryRetryable, e.outbox.now().Add(time.Hour)); err != nil {
+				return err
+			}
+			continue
+		}
+		if price != nil {
+			row.PriceID = &price.PriceID
+			if !priceIDs[price.PriceID] {
+				if err := pricesEncoder.Encode(price); err != nil {
+					return err
+				}
+				priceIDs[price.PriceID] = true
+			}
+		}
 		if err := encoder.Encode(row); err != nil {
 			return err
 		}
@@ -157,7 +184,13 @@ func (e *IDVExporter) ExportOnce(ctx context.Context) error {
 		return nil
 	}
 
-	state, hold := e.send(ctx, body.Bytes(), len(claimed))
+	state, hold := DeliveryAcknowledged, false
+	if len(priceIDs) > 0 {
+		state, hold = e.sendDataset(ctx, e.cfg.PricesDataset, pricesBody.Bytes(), len(priceIDs))
+	}
+	if state == DeliveryAcknowledged {
+		state, hold = e.send(ctx, body.Bytes(), len(claimed))
+	}
 	for id, attempt := range claimed {
 		delay := min(time.Second*time.Duration(1<<min(attempt, uint64(6))), time.Minute)
 		if hold {
@@ -171,7 +204,11 @@ func (e *IDVExporter) ExportOnce(ctx context.Context) error {
 }
 
 func (e *IDVExporter) send(ctx context.Context, body []byte, rows int) (DeliveryState, bool) {
-	endpoint := strings.TrimRight(e.cfg.URL, "/") + "/api/datasets/" + e.cfg.Dataset + "/rows"
+	return e.sendDataset(ctx, e.cfg.Dataset, body, rows)
+}
+
+func (e *IDVExporter) sendDataset(ctx context.Context, dataset string, body []byte, rows int) (DeliveryState, bool) {
+	endpoint := strings.TrimRight(e.cfg.URL, "/") + "/api/datasets/" + dataset + "/rows"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		e.setStatus("invalid_configuration")

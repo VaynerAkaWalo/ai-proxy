@@ -93,6 +93,18 @@ func TestIDVExporterConfiguration(t *testing.T) {
 		}
 	}
 
+	for _, dataset := range []string{"../prices", "owner/prices?token=secret", cfg.IDV.Dataset} {
+		invalid := cfg
+		invalid.IDV.PricesDataset = dataset
+		if err := invalid.Validate(); err == nil {
+			t.Fatalf("accepted prices dataset %q", dataset)
+		}
+	}
+	cfg.IDV.PricesDataset = "pawel/prices"
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
 	cfg.LiteLLM.Enabled = true
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("two exporters accepted for the same delivery state")
