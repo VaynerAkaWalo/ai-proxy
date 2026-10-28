@@ -1171,8 +1171,9 @@ observability:
     shutdown-seconds: 5
     idv:
       enabled: false # Enable either IDV or LiteLLM, not both.
-      url: "" # IDV base URL. Create a dataset implementing llm_usage@0.1/attempts first.
-      dataset: "" # owner/name
+      url: "" # IDV base URL.
+      dataset: "" # owner/name implementing llm_usage@0.1/attempts
+      prices-dataset: "" # Optional owner/name implementing llm_usage@0.1/prices.
       token-env: "" # Optional bearer token environment variable for the receiving gateway.
     litellm:
       enabled: false

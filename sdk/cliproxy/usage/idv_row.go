@@ -7,6 +7,7 @@ import (
 )
 
 type idvRow struct {
+	PriceID                  *string   `json:"price_id,omitempty"`
 	Source                   string    `json:"source"`
 	ExecutionID              string    `json:"execution_id"`
 	TraceID                  *string   `json:"trace_id"`

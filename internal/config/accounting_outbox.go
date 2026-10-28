@@ -51,10 +51,11 @@ type LiteLLMIdentity struct {
 }
 
 type IDVExporterConfig struct {
-	Enabled  bool   `yaml:"enabled" json:"enabled"`
-	URL      string `yaml:"url" json:"url"`
-	Dataset  string `yaml:"dataset" json:"dataset"`
-	TokenEnv string `yaml:"token-env" json:"token-env"`
+	Enabled       bool   `yaml:"enabled" json:"enabled"`
+	URL           string `yaml:"url" json:"url"`
+	Dataset       string `yaml:"dataset" json:"dataset"`
+	PricesDataset string `yaml:"prices-dataset" json:"prices-dataset"`
+	TokenEnv      string `yaml:"token-env" json:"token-env"`
 }
 
 var idvDatasetPattern = regexp.MustCompile(`^[a-z0-9_-]+/[a-z0-9_]+$`)
@@ -103,6 +104,9 @@ func (c AccountingOutboxConfig) Validate() error {
 		u, err := url.Parse(c.IDV.URL)
 		if !c.Enabled || err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || !idvDatasetPattern.MatchString(c.IDV.Dataset) {
 			return fmt.Errorf("IDV exporter requires an enabled outbox, HTTP(S) URL without credentials or query, and an owner/name dataset")
+		}
+		if c.IDV.PricesDataset != "" && (!idvDatasetPattern.MatchString(c.IDV.PricesDataset) || c.IDV.PricesDataset == c.IDV.Dataset) {
+			return fmt.Errorf("IDV prices-dataset must be a different owner/name dataset")
 		}
 	}
 	if c.LiteLLM.Enabled {
