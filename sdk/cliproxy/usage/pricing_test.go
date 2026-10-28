@@ -321,3 +321,32 @@ func TestCatalogContextBoundariesAndTierIsolation(t *testing.T) {
 		}
 	}
 }
+
+func TestCatalogContextThresholdsAreModelSpecific(t *testing.T) {
+	rates, err := importLiteLLM([]byte(`{
+		"small":{"litellm_provider":"openai","mode":"chat","input_cost_per_token":0.000001,"input_cost_per_token_above_128k_tokens":0.000002},
+		"large":{"litellm_provider":"openai","mode":"chat","input_cost_per_token":0.000001,"input_cost_per_token_above_500k_tokens":0.000003}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	book := testPriceBook(t, rates...)
+
+	for _, tc := range []struct {
+		model  string
+		tokens int64
+		amount string
+	}{
+		{"small", 128001, "0.256002000"},
+		{"large", 128001, "0.128001000"},
+		{"large", 500000, "0.500000000"},
+		{"large", 500001, "1.500003000"},
+	} {
+		event := AccountingEvent{Provider: "openai", ExecutedModel: tc.model, Tokens: &AccountingTokens{Breakdown: NewSubsetTokenBreakdown(tc.tokens, 0, 0, 0, 0, tc.tokens)}}
+		e := book.Estimate(event)
+
+		if e.Status != "priced" || e.Amount == nil || *e.Amount != tc.amount {
+			t.Fatalf("%+v: %+v", tc, e)
+		}
+	}
+}
