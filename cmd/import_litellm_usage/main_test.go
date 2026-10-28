@@ -1,0 +1,255 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func number(value int64) *int64 { return &value }
+func text(value string) *string { return &value }
+
+func sourceLog() spendLog {
+	return spendLog{
+		RequestID: "request", CallType: "acompletion", Provider: "openai", Model: "m",
+		StartedAt:   time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC),
+		CompletedAt: time.Date(2026, 8, 12, 12, 0, 1, 0, time.UTC),
+		Status:      "success", Spend: text("1.2345678901234e-6"),
+		PromptTokens: number(100), CompletionTokens: number(20), TotalTokens: number(120),
+	}
+}
+
+func writeExport(t *testing.T, logs ...spendLog) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "source.jsonl")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoder := json.NewEncoder(file)
+	if err := encoder.Encode(map[string]int{"export_total_rows": len(logs)}); err != nil {
+		t.Fatal(err)
+	}
+	for _, log := range logs {
+		if err := encoder.Encode(log); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestHistoricalProxyPreservesUnknownBucketsAndSourceIdentity(t *testing.T) {
+	log := sourceLog()
+	version := 1
+	log.ProxySchema, log.CostKind = &version, "api_equivalent_estimate"
+	log.ClientID = strings.Repeat("a", 64)
+	mapped, spend, err := historicalRow(log, map[string]string{log.ClientID: "canonical-client"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := json.Marshal(mapped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded["source"] != "ai_proxy" || decoded["execution_id"] != "request" || decoded["client_id"] != "canonical-client" || decoded["cost_kind"] != "api_equivalent_estimate" || decoded["cost_usd"] != "0.000001234568" || spend.Sign() <= 0 {
+		t.Fatalf("wrong historical facts: %s", raw)
+	}
+	for _, key := range []string{"input_uncached_tokens", "output_non_reasoning_tokens", "cache_read_tokens", "cache_write_tokens", "reasoning_tokens", "price_id", "pricing_snapshot"} {
+		if decoded[key] != nil {
+			t.Fatalf("invented %s", key)
+		}
+	}
+	if decoded["usage_quality"] != "unknown" || decoded["unclassified_tokens"] != float64(120) {
+		t.Fatalf("wrong quality: %s", raw)
+	}
+}
+
+func TestHistoricalNativeDisjointTokenBuckets(t *testing.T) {
+	log := sourceLog()
+	log.CacheReadTokens, log.CacheWriteTokens, log.ReasoningTokens = number(70), number(10), number(5)
+	mapped, _, err := historicalRow(log, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if *mapped["input_uncached_tokens"].(*int64) != 20 || *mapped["output_non_reasoning_tokens"].(*int64) != 15 || mapped["usage_quality"] != "complete" || mapped["unclassified_tokens"] != int64(0) || mapped["source"] != "litellm" || mapped["cost_kind"] != "source_reported" {
+		t.Fatalf("wrong canonical buckets: %+v", mapped)
+	}
+	log.ReasoningTokens = number(30)
+	mapped, _, err = historicalRow(log, nil)
+	if err != nil || mapped["usage_quality"] != "inconsistent" || mapped["output_non_reasoning_tokens"].(*int64) != nil {
+		t.Fatalf("invalid breakdown not retained: %+v %v", mapped, err)
+	}
+}
+
+func TestPrepareSkipsLiveExistingAndAdministrativeRecords(t *testing.T) {
+	cutoff := time.Date(2026, 10, 28, 23, 24, 5, 0, time.UTC)
+	version := 1
+	history := sourceLog()
+	history.RequestID = "history"
+	history.ProxySchema = &version
+	existing := history
+	existing.RequestID = "existing"
+	live := history
+	live.RequestID, live.StartedAt, live.CompletedAt = "live", cutoff, cutoff
+	admin := sourceLog()
+	admin.CallType, admin.Model = "/team/list", ""
+	native := sourceLog()
+	native.StartedAt, native.CompletedAt = cutoff, cutoff
+
+	rows, stats, err := prepare(writeExport(t, history, existing, live, admin, native), map[string]bool{"ai_proxy\x00existing": true}, nil, cutoff)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(rows) != 2 || stats.Prepared != 2 || stats.Existing != 1 || stats.Live != 1 || stats.NonLLM != 1 || stats.SpendUSD != "0.000002469136" || stats.BySource["ai_proxy"] != 1 || stats.BySource["litellm"] != 1 {
+		t.Fatalf("wrong migration plan: %+v", stats)
+	}
+}
+
+func TestPrepareRejectsIncompleteExportAndDuplicateIdentity(t *testing.T) {
+	log := sourceLog()
+	for _, content := range []string{
+		`{"export_total_rows":2}` + "\n" + `{"call_type":"/team/list"}`,
+		`{"call_type":"/team/list"}`,
+	} {
+		path := filepath.Join(t.TempDir(), "broken.jsonl")
+		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := prepare(path, nil, nil, time.Now()); err == nil {
+			t.Fatal("accepted an incomplete export")
+		}
+	}
+	if _, _, err := prepare(writeExport(t, log, log), nil, nil, time.Now()); err == nil {
+		t.Fatal("accepted a duplicate source identity")
+	}
+}
+
+func TestHistoricalInvalidFactsFailBeforeUpload(t *testing.T) {
+	for _, value := range []string{"NaN", "Infinity", "-1", "1000000000000", "1/2", "0x10"} {
+		log := sourceLog()
+		log.Spend = &value
+		if _, _, err := historicalRow(log, nil); err == nil {
+			t.Fatalf("accepted invalid spend %s", value)
+		}
+	}
+	log := sourceLog()
+	log.PromptTokens = number(-1)
+	if _, _, err := historicalRow(log, nil); err == nil {
+		t.Fatal("accepted negative tokens")
+	}
+
+	bad := filepath.Join(t.TempDir(), "invalid.jsonl")
+	if err := os.WriteFile(bad, []byte(`{"export_total_rows":1}`+"\n"+`{"request_id":"bad","call_type":"acompletion"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	existing := filepath.Join(t.TempDir(), "existing.jsonl")
+	if err := os.WriteFile(existing, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(t.TempDir(), "rows.ndjson")
+	err := run(context.Background(), []string{"--input", bad, "--existing", existing, "--output", output, "--proxy-before", "2026-10-28T23:24:05Z", "--apply"})
+	if err == nil {
+		t.Fatal("accepted invalid input")
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatal("wrote output before validation completed")
+	}
+}
+
+func TestUploadAcknowledgementsAndReplayDeduplication(t *testing.T) {
+	stored := map[string]bool{}
+	fail := true
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		decoder := json.NewDecoder(r.Body)
+		count := 0
+		for {
+			var row row
+			err := decoder.Decode(&row)
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			stored[rowKey(row)] = true
+			count++
+		}
+		if fail {
+			fail = false
+			w.WriteHeader(503)
+			return
+		}
+		_, _ = fmt.Fprintf(w, `{"rows":%d}`, count)
+	}))
+	defer server.Close()
+	rows := []row{}
+	for i := 0; i < 300; i++ {
+		rows = append(rows, row{"source": "litellm", "execution_id": fmt.Sprint(i)})
+	}
+
+	if err := upload(context.Background(), server.Client(), server.URL, "", rows); err == nil {
+		t.Fatal("ignored an unacknowledged batch")
+	}
+	if err := upload(context.Background(), server.Client(), server.URL, "", rows); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(stored) != 300 {
+		t.Fatalf("replay created duplicates: %d", len(stored))
+	}
+}
+
+func TestHistoricalProjectionNeverForwardsPayloadsOrCredentials(t *testing.T) {
+	log := sourceLog()
+	encoded, err := json.Marshal(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatal(err)
+	}
+	fields["messages"], fields["response"], fields["api_key"] = "private-prompt", "private-response", "private-key"
+	fields["client_id"] = "private-key"
+	encoded, err = json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(encoded, &log); err != nil {
+		t.Fatal(err)
+	}
+
+	projected, _, err := historicalRow(log, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err = json.Marshal(projected)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, private := range []string{"private-prompt", "private-response", "private-key"} {
+		if strings.Contains(string(encoded), private) {
+			t.Fatal("forwarded private source data")
+		}
+	}
+}
