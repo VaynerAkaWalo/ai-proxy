@@ -8,8 +8,10 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
@@ -241,29 +243,93 @@ func importLiteLLM(raw []byte) ([]config.PriceRate, error) {
 		if provider == "" || (mode != "chat" && mode != "completion" && mode != "responses") {
 			continue
 		}
-		rate := config.PriceRate{Provider: provider, Model: strings.TrimPrefix(key, provider+"/"), Currency: "USD"}
-		for field, target := range map[string]**string{"input_cost_per_token": &rate.Input, "output_cost_per_token": &rate.Output, "cache_read_input_token_cost": &rate.CacheRead, "cache_creation_input_token_cost": &rate.CacheCreation} {
-			if value, ok := entry[field]; ok && string(value) != "null" {
-				var number json.Number
-				if err := json.Unmarshal(value, &number); err != nil {
-					return nil, fmt.Errorf("invalid catalog rate for %s", key)
-				}
-				r, ok := new(big.Rat).SetString(string(number))
-				if !ok || r.Sign() < 0 {
-					return nil, fmt.Errorf("invalid catalog rate for %s", key)
-				}
-				// LiteLLM commonly uses scientific notation. Rates beyond 18 places round rather than discard the catalog.
-				decimal := r.FloatString(18)
-				*target = &decimal
+		for _, tier := range []string{"", "priority", "flex"} {
+			bands, err := importContextBands(entry, provider, strings.TrimPrefix(key, provider+"/"), tier)
+			if err != nil {
+				return nil, fmt.Errorf("catalog model %s: %w", key, err)
 			}
+			rates = append(rates, bands...)
 		}
-		// Conditional prices (above-context, priority, flex) are ignored so the base rate is reported instead of nothing.
-		rates = append(rates, rate)
 	}
 	if len(rates) == 0 {
 		return nil, fmt.Errorf("catalog contains no supported prices")
 	}
 	return rates, nil
+}
+
+var contextPriceSuffix = regexp.MustCompile(`^_above_([0-9]+)k_tokens$`)
+
+func importContextBands(entry map[string]json.RawMessage, provider, model, tier string) ([]config.PriceRate, error) {
+	fields := []string{"input_cost_per_token", "output_cost_per_token", "cache_read_input_token_cost", "cache_creation_input_token_cost"}
+	changes := map[int64]map[int]*string{}
+	for key, raw := range entry {
+		name := key
+		if tier != "" {
+			if !strings.HasSuffix(name, "_"+tier) {
+				continue
+			}
+			name = strings.TrimSuffix(name, "_"+tier)
+		}
+		for bucket, field := range fields {
+			if !strings.HasPrefix(name, field) {
+				continue
+			}
+			suffix := strings.TrimPrefix(name, field)
+			var boundary int64
+			if suffix != "" {
+				match := contextPriceSuffix.FindStringSubmatch(suffix)
+				if match == nil {
+					continue
+				}
+				threshold, err := strconv.ParseInt(match[1], 10, 64)
+				if err != nil || threshold > (1<<63-2)/1000 {
+					return nil, fmt.Errorf("invalid context threshold")
+				}
+				boundary = threshold*1000 + 1
+			}
+			if string(raw) == "null" {
+				continue
+			}
+			var number json.Number
+			if err := json.Unmarshal(raw, &number); err != nil {
+				return nil, fmt.Errorf("invalid catalog rate")
+			}
+			value, ok := new(big.Rat).SetString(string(number))
+			if !ok || value.Sign() < 0 {
+				return nil, fmt.Errorf("invalid catalog rate")
+			}
+			decimal := value.FloatString(18)
+			if changes[boundary] == nil {
+				changes[boundary] = map[int]*string{}
+			}
+			changes[boundary][bucket] = &decimal
+		}
+	}
+	if len(changes) == 0 {
+		return nil, nil
+	}
+	boundaries := []int64{0}
+	for boundary := range changes {
+		if boundary != 0 {
+			boundaries = append(boundaries, boundary)
+		}
+	}
+	slices.Sort(boundaries)
+
+	rate := config.PriceRate{Provider: provider, Model: model, Tier: tier, Currency: "USD"}
+	var bands []config.PriceRate
+	for i, boundary := range boundaries {
+		targets := []**string{&rate.Input, &rate.Output, &rate.CacheRead, &rate.CacheCreation}
+		for bucket, value := range changes[boundary] {
+			*targets[bucket] = value
+		}
+		rate.MinContext, rate.MaxContext = boundary, 0
+		if i+1 < len(boundaries) {
+			rate.MaxContext = boundaries[i+1] - 1
+		}
+		bands = append(bands, rate)
+	}
+	return bands, nil
 }
 
 func loadPriceBook(cfg config.PricingConfig, dataPath string) *PriceBook {
