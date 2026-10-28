@@ -124,6 +124,7 @@ func historicalRow(log spendLog, clients map[string]string) (row, *big.Rat, erro
 		"provider": nullable(log.Provider), "executed_model": nullable(log.Model), "requested_model": nullable(requested),
 		"client_id": nullable(client), "session_id": nullable(log.SessionID),
 		"status": status, "usage_quality": "unknown", "cost_status": "unpriced", "cost_kind": kind,
+		"input_tokens": log.PromptTokens, "output_tokens": log.CompletionTokens,
 		"total_tokens":      log.TotalTokens,
 		"cache_read_tokens": log.CacheReadTokens, "cache_write_tokens": log.CacheWriteTokens, "reasoning_tokens": log.ReasoningTokens,
 	}

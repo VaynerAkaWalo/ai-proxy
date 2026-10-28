@@ -75,6 +75,9 @@ func TestHistoricalProxyPreservesUnknownBucketsAndSourceIdentity(t *testing.T) {
 			t.Fatalf("invented %s", key)
 		}
 	}
+	if decoded["input_tokens"] != float64(100) || decoded["output_tokens"] != float64(20) {
+		t.Fatalf("lost known parent totals: %s", raw)
+	}
 	if decoded["usage_quality"] != "unknown" || decoded["unclassified_tokens"] != float64(120) {
 		t.Fatalf("wrong quality: %s", raw)
 	}
