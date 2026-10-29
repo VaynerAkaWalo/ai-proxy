@@ -300,7 +300,7 @@ func testCatalog(t *testing.T) *usage.PriceBook {
 	return book
 }
 
-func TestRepriceReplacesSpendOnlyForCompleteUsage(t *testing.T) {
+func TestRepricePricesUnrecordedCacheBucketsAsZero(t *testing.T) {
 	book := testCatalog(t)
 	log := sourceLog()
 	log.Model = "openai/gpt-6.1-sol"
@@ -327,8 +327,18 @@ func TestRepriceReplacesSpendOnlyForCompleteUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	price, err = reprice(mapped, book)
+	if err != nil || price == nil || mapped["cost_usd"] != "0.000267000" || mapped["cache_write_tokens"].(*int64) != nil || mapped["usage_quality"] != "unknown" {
+		t.Fatalf("unrecorded cache write not priced as zero or not kept unknown: %+v %v", mapped, err)
+	}
+
+	log.CacheReadTokens = number(101)
+	mapped, _, err = historicalRow(log, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	price, err = reprice(mapped, book)
 	if err != nil || price != nil || mapped["cost_kind"] != "source_reported" || mapped["cost_usd"] != "0.000001234568" {
-		t.Fatalf("incomplete usage lost LiteLLM spend: %+v %v", mapped, err)
+		t.Fatalf("contradictory usage lost LiteLLM spend: %+v %v", mapped, err)
 	}
 }
 

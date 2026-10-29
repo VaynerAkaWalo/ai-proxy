@@ -227,24 +227,32 @@ func stringValue(value any) string {
 	return s
 }
 
-// reprice replaces LiteLLM's spend with ai-proxy's estimate where the usage is complete,
-// and keeps LiteLLM's amount where an estimate would only be partial.
+// reprice replaces LiteLLM's spend with ai-proxy's estimate so history has a single cost kind.
+// Cache buckets LiteLLM did not record are priced as zero, which matches xAI's catalog having no
+// cache-write price, while the row itself keeps them unknown. The catalog has no reasoning rates,
+// so all output is priced at the output rate regardless of how LiteLLM split it.
 func reprice(result row, book *usage.PriceBook) (any, error) {
-	if book == nil || result["source"] != "litellm" || result["status"] != "succeeded" || result["usage_quality"] != "complete" {
+	prompt, completion := result["input_tokens"].(*int64), result["output_tokens"].(*int64)
+	if book == nil || result["source"] != "litellm" || result["status"] != "succeeded" || prompt == nil || completion == nil {
 		return nil, nil
 	}
-	count := func(name string) int64 { return *result[name].(*int64) }
+	known := func(name string) int64 {
+		if count := result[name].(*int64); count != nil {
+			return *count
+		}
+		return 0
+	}
+	read, write := known("cache_read_tokens"), known("cache_write_tokens")
+	if read+write > *prompt {
+		return nil, nil
+	}
 	breakdown := usage.TokenBreakdown{
 		SchemaVersion: usage.TokenAccountingSchemaVersion, Quality: usage.TokenAccountingQualityComplete,
-		TotalTokens: count("total_tokens"), UnclassifiedTokens: result["unclassified_tokens"].(int64),
+		TotalTokens: *prompt + *completion,
 		Input: usage.TokenInputBreakdown{
-			TotalTokens: count("input_tokens"), UncachedTokens: count("input_uncached_tokens"),
-			CacheReadTokens: count("cache_read_tokens"), CacheWriteTokens: count("cache_write_tokens"),
+			TotalTokens: *prompt, UncachedTokens: *prompt - read - write, CacheReadTokens: read, CacheWriteTokens: write,
 		},
-		Output: usage.TokenOutputBreakdown{
-			TotalTokens: count("output_tokens"), NonReasoningTokens: count("output_non_reasoning_tokens"),
-			ReasoningTokens: count("reasoning_tokens"),
-		},
+		Output: usage.TokenOutputBreakdown{TotalTokens: *completion, NonReasoningTokens: *completion},
 	}
 	estimate := book.Estimate(usage.AccountingEvent{
 		Provider: stringValue(result["provider"]), ExecutedModel: stringValue(result["executed_model"]), RequestedAlias: stringValue(result["requested_model"]),
