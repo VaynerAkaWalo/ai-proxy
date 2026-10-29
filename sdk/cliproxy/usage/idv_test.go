@@ -45,6 +45,7 @@ func TestIDVMappingPreservesAccountingAndOmitsInternalPayloads(t *testing.T) {
 		"provider": "openai", "requested_model": "alias", "executed_model": "gpt-4o",
 		"client_id": "local-client", "account_id": "account-hash", "session_id": "session", "service_tier": "priority",
 		"status": "succeeded", "status_code": float64(200),
+		"input_tokens": float64(10), "output_tokens": float64(5),
 		"input_uncached_tokens": float64(8), "cache_read_tokens": float64(2), "cache_write_tokens": float64(0),
 		"output_non_reasoning_tokens": float64(4), "reasoning_tokens": float64(1), "total_tokens": float64(15),
 		"unclassified_tokens": float64(0), "usage_quality": "complete",
@@ -61,13 +62,13 @@ func TestIDVMappingKeepsUnknownUsageAndPartialCosts(t *testing.T) {
 	event.Tokens = nil
 	event.Estimate.Status = "partial"
 	row, err := newIDVRow(event)
-	if err != nil || row.Status != "interrupted" || row.InputUncachedTokens != nil || row.TotalTokens != nil || row.UsageQuality != "unknown" || row.CostStatus != "partial" || row.CostUSD == nil {
+	if err != nil || row.Status != "interrupted" || row.InputTokens != nil || row.OutputTokens != nil || row.InputUncachedTokens != nil || row.TotalTokens != nil || row.UsageQuality != "unknown" || row.CostStatus != "partial" || row.CostUSD == nil {
 		t.Fatalf("unknown usage or partial cost lost: %+v, %v", row, err)
 	}
 
 	event.Tokens = &AccountingTokens{Breakdown: NewUnclassifiedTokenBreakdown(42)}
 	row, err = newIDVRow(event)
-	if err != nil || row.InputUncachedTokens != nil || row.ReasoningTokens != nil || row.TotalTokens == nil || *row.TotalTokens != 42 || row.UnclassifiedTokens == nil || *row.UnclassifiedTokens != 42 || row.UsageQuality != "unclassified" {
+	if err != nil || row.InputTokens != nil || row.OutputTokens != nil || row.InputUncachedTokens != nil || row.ReasoningTokens != nil || row.TotalTokens == nil || *row.TotalTokens != 42 || row.UnclassifiedTokens == nil || *row.UnclassifiedTokens != 42 || row.UsageQuality != "unclassified" {
 		t.Fatalf("unclassified usage fabricated: %+v, %v", row, err)
 	}
 
@@ -344,5 +345,16 @@ func TestIDVRefusesRedirects(t *testing.T) {
 	}
 	if d, err := o.Delivery("redirect"); err != nil || d.State != DeliveryRetryable {
 		t.Fatalf("redirect acknowledged: %+v, %v", d, err)
+	}
+}
+
+func TestIDVParentTotalsKeepKnownZeros(t *testing.T) {
+	event := exportEvent("zero-parents")
+	event.Tokens = &AccountingTokens{Breakdown: NewSubsetTokenBreakdown(0, 0, 0, 0, 0, 0)}
+
+	row, err := newIDVRow(event)
+
+	if err != nil || row.InputTokens == nil || *row.InputTokens != 0 || row.OutputTokens == nil || *row.OutputTokens != 0 {
+		t.Fatalf("lost known zero parent totals: %+v %v", row, err)
 	}
 }

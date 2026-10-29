@@ -7,6 +7,8 @@ import (
 )
 
 type idvRow struct {
+	InputTokens              *int64    `json:"input_tokens"`
+	OutputTokens             *int64    `json:"output_tokens"`
 	PriceID                  *string   `json:"price_id,omitempty"`
 	Source                   string    `json:"source"`
 	ExecutionID              string    `json:"execution_id"`
@@ -77,6 +79,10 @@ func newIDVRow(event AccountingEvent) (idvRow, error) {
 		b := event.Tokens.Breakdown
 		if b.Valid() {
 			complete := b.Quality == TokenAccountingQualityComplete
+			if complete {
+				row.InputTokens = idvTokenCount(b.Input.TotalTokens, true)
+				row.OutputTokens = idvTokenCount(b.Output.TotalTokens, true)
+			}
 			row.UsageQuality = string(b.Quality)
 			row.InputUncachedTokens = idvTokenCount(b.Input.UncachedTokens, complete)
 			row.CacheReadTokens = idvTokenCount(b.Input.CacheReadTokens, complete)
