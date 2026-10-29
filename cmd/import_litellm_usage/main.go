@@ -16,6 +16,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 )
 
 type spendLog struct {
@@ -44,14 +46,28 @@ type spendLog struct {
 type row map[string]any
 
 type report struct {
-	Read             int            `json:"read"`
-	Prepared         int            `json:"prepared"`
-	Existing         int            `json:"skipped_existing"`
-	Live             int            `json:"skipped_live_proxy"`
-	NonLLM           int            `json:"skipped_non_llm"`
-	BySource         map[string]int `json:"by_source"`
-	SpendUSD         string         `json:"spend_usd"`
-	RoundingDeltaUSD string         `json:"rounding_delta_usd"`
+	Read                int            `json:"read"`
+	Prepared            int            `json:"prepared"`
+	Existing            int            `json:"skipped_existing"`
+	Live                int            `json:"skipped_live_proxy"`
+	NonLLM              int            `json:"skipped_non_llm"`
+	BySource            map[string]int `json:"by_source"`
+	SpendUSD            string         `json:"spend_usd"`
+	RoundingDeltaUSD    string         `json:"rounding_delta_usd"`
+	Repriced            int            `json:"repriced"`
+	RepricedSpendUSD    string         `json:"repriced_source_spend_usd"`
+	RepricedEstimateUSD string         `json:"repriced_estimate_usd"`
+	Prices              int            `json:"prices"`
+	RepairedTotals      int            `json:"repaired_live_totals"`
+}
+
+type plan struct {
+	// existing maps IDV keys to whether live export wrote the row.
+	existing map[string]bool
+	clients  map[string]string
+	cutoff   time.Time
+	book     *usage.PriceBook
+	replace  bool
 }
 
 var sourceAmount = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]{1,3})?$`)
@@ -64,6 +80,16 @@ func nullable(value string) any {
 		return nil
 	}
 	return value
+}
+
+// LiteLLM routed these models through ai-proxy's Codex executor.
+var codexProviders = map[string]bool{"openai": true, "chatgpt": true}
+
+func canonicalModel(model string) string {
+	for _, prefix := range []string{"openai/", "xai/", "chatgpt/"} {
+		model = strings.TrimPrefix(model, prefix)
+	}
+	return model
 }
 
 func isModelCall(log spendLog) bool {
@@ -90,17 +116,27 @@ func historicalRow(log spendLog, clients map[string]string) (row, *big.Rat, erro
 	default:
 		return nil, nil, errors.New("unknown request status")
 	}
+	if status == "failed" {
+		// LiteLLM logs a zero spend and its own prompt estimate for failed calls, not provider usage.
+		log.Spend, log.PromptTokens, log.CompletionTokens, log.TotalTokens = nil, nil, nil, nil
+		log.CacheReadTokens, log.CacheWriteTokens, log.ReasoningTokens = nil, nil, nil
+	}
 	for _, count := range []*int64{log.PromptTokens, log.CompletionTokens, log.TotalTokens, log.CacheReadTokens, log.CacheWriteTokens, log.ReasoningTokens} {
 		if count != nil && (*count < 0 || *count > 9007199254740991) {
 			return nil, nil, errors.New("invalid token count")
 		}
 	}
-	source := "litellm"
+	source, session := "litellm", log.SessionID
 	if log.ProxySchema != nil {
 		if *log.ProxySchema != 1 {
 			return nil, nil, errors.New("unknown proxy accounting schema")
 		}
-		source = "ai_proxy"
+		// LiteLLM generated a session per proxy-reported call.
+		source, session = "ai_proxy", ""
+	}
+	provider := log.Provider
+	if codexProviders[provider] {
+		provider = "codex"
 	}
 	client := ""
 	if keyHash.MatchString(log.ClientID) {
@@ -109,9 +145,9 @@ func historicalRow(log spendLog, clients map[string]string) (row, *big.Rat, erro
 			client = "litellm_key:" + log.ClientID
 		}
 	}
-	requested := log.RequestedModel
+	requested := canonicalModel(log.RequestedModel)
 	if requested == "" {
-		requested = log.Model
+		requested = canonicalModel(log.Model)
 	}
 	kind := log.CostKind
 	if kind == "" {
@@ -121,8 +157,8 @@ func historicalRow(log spendLog, clients map[string]string) (row, *big.Rat, erro
 	result := row{
 		"source": source, "execution_id": log.RequestID,
 		"started_at": log.StartedAt.UTC(), "completed_at": log.CompletedAt.UTC(),
-		"provider": nullable(log.Provider), "executed_model": nullable(log.Model), "requested_model": nullable(requested),
-		"client_id": nullable(client), "session_id": nullable(log.SessionID),
+		"provider": nullable(provider), "executed_model": nullable(canonicalModel(log.Model)), "requested_model": nullable(requested),
+		"client_id": nullable(client), "session_id": nullable(session),
 		"status": status, "usage_quality": "unknown", "cost_status": "unpriced", "cost_kind": kind,
 		"input_tokens": log.PromptTokens, "output_tokens": log.CompletionTokens,
 		"total_tokens":      log.TotalTokens,
@@ -186,6 +222,92 @@ func historicalRow(log spendLog, clients map[string]string) (row, *big.Rat, erro
 	return result, spend, nil
 }
 
+func stringValue(value any) string {
+	s, _ := value.(string)
+	return s
+}
+
+// reprice replaces LiteLLM's spend with ai-proxy's estimate where the usage is complete,
+// and keeps LiteLLM's amount where an estimate would only be partial.
+func reprice(result row, book *usage.PriceBook) (any, error) {
+	if book == nil || result["source"] != "litellm" || result["status"] != "succeeded" || result["usage_quality"] != "complete" {
+		return nil, nil
+	}
+	count := func(name string) int64 { return *result[name].(*int64) }
+	breakdown := usage.TokenBreakdown{
+		SchemaVersion: usage.TokenAccountingSchemaVersion, Quality: usage.TokenAccountingQualityComplete,
+		TotalTokens: count("total_tokens"), UnclassifiedTokens: result["unclassified_tokens"].(int64),
+		Input: usage.TokenInputBreakdown{
+			TotalTokens: count("input_tokens"), UncachedTokens: count("input_uncached_tokens"),
+			CacheReadTokens: count("cache_read_tokens"), CacheWriteTokens: count("cache_write_tokens"),
+		},
+		Output: usage.TokenOutputBreakdown{
+			TotalTokens: count("output_tokens"), NonReasoningTokens: count("output_non_reasoning_tokens"),
+			ReasoningTokens: count("reasoning_tokens"),
+		},
+	}
+	estimate := book.Estimate(usage.AccountingEvent{
+		Provider: stringValue(result["provider"]), ExecutedModel: stringValue(result["executed_model"]), RequestedAlias: stringValue(result["requested_model"]),
+		Status: "succeeded", Tokens: &usage.AccountingTokens{Breakdown: breakdown},
+	})
+	if estimate.Status != "priced" || estimate.Currency != "USD" {
+		return nil, nil
+	}
+
+	record, id, err := usage.IDVPriceRecord(estimate)
+	if err != nil {
+		return nil, err
+	}
+	result["cost_usd"], result["cost_kind"], result["price_id"], result["pricing_snapshot"] = *estimate.Amount, estimate.Kind, id, estimate.Snapshot
+	return record, nil
+}
+
+// repairTotals fills the input and output totals that live export omitted before it kept them,
+// derived from the complete disjoint buckets of the same row.
+func repairTotals(snapshot row) (row, error) {
+	if snapshot["source"] != "ai_proxy" || snapshot["usage_quality"] != "complete" || snapshot["input_tokens"] != nil {
+		return nil, nil
+	}
+	sum := func(names ...string) (int64, error) {
+		total := int64(0)
+		for _, name := range names {
+			value, ok := snapshot[name].(json.Number)
+			if !ok {
+				return 0, fmt.Errorf("complete row lacks %s", name)
+			}
+			count, err := value.Int64()
+			if err != nil {
+				return 0, err
+			}
+			total += count
+		}
+		return total, nil
+	}
+	input, err := sum("input_uncached_tokens", "cache_read_tokens", "cache_write_tokens")
+	if err != nil {
+		return nil, err
+	}
+	output, err := sum("output_non_reasoning_tokens", "reasoning_tokens")
+	if err != nil {
+		return nil, err
+	}
+
+	repaired := row{}
+	for name, value := range snapshot {
+		repaired[name] = value
+	}
+	repaired["input_tokens"], repaired["output_tokens"] = input, output
+	for _, name := range []string{"started_at", "completed_at"} {
+		// ClickHouse exports DateTime64(3, 'UTC') without a zone, IDV requires one.
+		at, err := time.Parse("2006-01-02 15:04:05.999", stringValue(snapshot[name]))
+		if err != nil {
+			return nil, err
+		}
+		repaired[name] = at.UTC()
+	}
+	return repaired, nil
+}
+
 func rowKey(row row) string {
 	return fmt.Sprint(row["source"]) + "\x00" + fmt.Sprint(row["execution_id"])
 }
@@ -212,11 +334,12 @@ func readLines(path string, consume func([]byte) error) error {
 	return scanner.Err()
 }
 
-func prepare(input string, existing map[string]bool, clients map[string]string, cutoff time.Time) ([]row, report, error) {
-	rows := []row{}
+func (p plan) prepare(input string) ([]row, []any, report, error) {
+	rows, prices := []row{}, []any{}
 	stats := report{BySource: map[string]int{}}
-	seen := map[string]bool{}
+	seen, priced := map[string]bool{}, map[string]bool{}
 	original, rounded := new(big.Rat), new(big.Rat)
+	repricedSpend, repricedEstimate := new(big.Rat), new(big.Rat)
 	expectedRows := -1
 	err := readLines(input, func(raw []byte) error {
 		var log spendLog
@@ -235,11 +358,11 @@ func prepare(input string, existing map[string]bool, clients map[string]string, 
 			stats.NonLLM++
 			return nil
 		}
-		if log.ProxySchema != nil && !log.StartedAt.Before(cutoff) {
+		if log.ProxySchema != nil && !log.StartedAt.Before(p.cutoff) {
 			stats.Live++
 			return nil
 		}
-		row, spend, err := historicalRow(log, clients)
+		row, spend, err := historicalRow(log, p.clients)
 		if err != nil {
 			return err
 		}
@@ -248,30 +371,48 @@ func prepare(input string, existing map[string]bool, clients map[string]string, 
 			return errors.New("duplicate source identity")
 		}
 		seen[key] = true
-		if existing[key] {
+		// Live rows carry facts LiteLLM never had, so even a replace keeps them.
+		if live, ok := p.existing[key]; ok && (live || !p.replace) {
 			stats.Existing++
 			return nil
 		}
 
-		rows = append(rows, row)
-		stats.BySource[row["source"].(string)]++
 		original.Add(original, spend)
 		if amount, ok := row["cost_usd"].(string); ok {
 			value, _ := new(big.Rat).SetString(amount)
 			rounded.Add(rounded, value)
 		}
+		source := row["cost_usd"]
+		price, err := reprice(row, p.book)
+		if err != nil {
+			return err
+		}
+		if price != nil {
+			stats.Repriced++
+			value, _ := new(big.Rat).SetString(source.(string))
+			repricedSpend.Add(repricedSpend, value)
+			value, _ = new(big.Rat).SetString(row["cost_usd"].(string))
+			repricedEstimate.Add(repricedEstimate, value)
+			if id := row["price_id"].(string); !priced[id] {
+				priced[id] = true
+				prices = append(prices, price)
+			}
+		}
+		rows = append(rows, row)
+		stats.BySource[row["source"].(string)]++
 		return nil
 	})
 	if err == nil && (expectedRows < 0 || expectedRows != stats.Read) {
 		err = errors.New("incomplete export or missing row-count header")
 	}
-	stats.Prepared = len(rows)
+	stats.Prepared, stats.Prices = len(rows), len(prices)
 	stats.SpendUSD = rounded.FloatString(12)
 	stats.RoundingDeltaUSD = new(big.Rat).Sub(rounded, original).FloatString(18)
-	return rows, stats, err
+	stats.RepricedSpendUSD, stats.RepricedEstimateUSD = repricedSpend.FloatString(12), repricedEstimate.FloatString(12)
+	return rows, prices, stats, err
 }
 
-func upload(ctx context.Context, client *http.Client, endpoint, token string, rows []row) error {
+func upload[T any](ctx context.Context, client *http.Client, endpoint, token string, rows []T) error {
 	for start := 0; start < len(rows); start += 256 {
 		batch := rows[start:min(start+256, len(rows))]
 		var body bytes.Buffer
@@ -306,60 +447,8 @@ func upload(ctx context.Context, client *http.Client, endpoint, token string, ro
 	return nil
 }
 
-func run(ctx context.Context, args []string) error {
-	flags := flag.NewFlagSet("import_litellm_usage", flag.ContinueOnError)
-	input := flags.String("input", "", "Whitelisted JSONL export from export.sql")
-	output := flags.String("output", "", "New NDJSON file for prepared IDV rows")
-	existingPath := flags.String("existing", "", "JSONL snapshot of existing IDV source/execution_id keys")
-	clientMapPath := flags.String("client-map", "", "Optional JSON map from LiteLLM key hashes to canonical client IDs")
-	before := flags.String("proxy-before", "", "UTC cutover timestamp, newer proxy rows are supplied by live export")
-	apply := flags.Bool("apply", false, "Upload prepared rows after validation, default is dry run")
-	url := flags.String("url", "https://analytics.blamedevs.com", "IDV base URL")
-	dataset := flags.String("dataset", "pawel/llm_usage", "Destination dataset owner/name")
-	tokenEnv := flags.String("token-env", "", "Optional environment variable containing a bearer token")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	cutoff, err := time.Parse(time.RFC3339Nano, *before)
-	if err != nil || *input == "" || *output == "" || *existingPath == "" || !datasetID.MatchString(*dataset) {
-		return errors.New("input, output, existing, a proxy-before timestamp and an owner/name dataset are required")
-	}
-	if *tokenEnv != "" && os.Getenv(*tokenEnv) == "" {
-		return errors.New("bearer token environment variable is empty")
-	}
-	clients := map[string]string{}
-	if *clientMapPath != "" {
-		raw, err := os.ReadFile(*clientMapPath)
-		if err != nil {
-			return err
-		}
-		if err := json.Unmarshal(raw, &clients); err != nil {
-			return err
-		}
-	}
-	existing := map[string]bool{}
-	if err := readLines(*existingPath, func(raw []byte) error {
-		var key struct {
-			Source      string `json:"source"`
-			ExecutionID string `json:"execution_id"`
-		}
-		if err := json.Unmarshal(raw, &key); err != nil {
-			return err
-		}
-		if key.Source == "" || key.ExecutionID == "" {
-			return errors.New("invalid existing IDV key")
-		}
-		existing[key.Source+"\x00"+key.ExecutionID] = true
-		return nil
-	}); err != nil {
-		return err
-	}
-	rows, stats, err := prepare(*input, existing, clients, cutoff)
-	if err != nil {
-		return err
-	}
-
-	file, err := os.OpenFile(*output, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+func writeNDJSON[T any](path string, rows []T) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return err
 	}
@@ -370,8 +459,93 @@ func run(ctx context.Context, args []string) error {
 			return err
 		}
 	}
-	if err := file.Close(); err != nil {
+	return file.Close()
+}
+
+func run(ctx context.Context, args []string) error {
+	flags := flag.NewFlagSet("import_litellm_usage", flag.ContinueOnError)
+	input := flags.String("input", "", "Whitelisted JSONL export from export.sql")
+	output := flags.String("output", "", "New NDJSON file for prepared IDV rows")
+	existingPath := flags.String("existing", "", "JSONEachRow snapshot of the existing IDV attempts")
+	clientMapPath := flags.String("client-map", "", "Optional JSON map from LiteLLM key hashes to canonical client IDs")
+	before := flags.String("proxy-before", "", "UTC cutover timestamp, newer proxy rows are supplied by live export")
+	replace := flags.Bool("replace", false, "Re-send existing rows corrected and repair live rows missing totals, default skips existing rows")
+	catalogPath := flags.String("catalog", "", "Optional LiteLLM price catalog to reprice history with complete usage")
+	pricesOutput := flags.String("prices-output", "", "New NDJSON file for the price records used, required with catalog")
+	apply := flags.Bool("apply", false, "Upload prepared rows after validation, default is dry run")
+	url := flags.String("url", "https://analytics.blamedevs.com", "IDV base URL")
+	dataset := flags.String("dataset", "pawel/llm_usage", "Destination dataset owner/name")
+	pricesDataset := flags.String("prices-dataset", "pawel/llm_prices", "Destination prices dataset owner/name")
+	tokenEnv := flags.String("token-env", "", "Optional environment variable containing a bearer token")
+	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	cutoff, err := time.Parse(time.RFC3339Nano, *before)
+	if err != nil || *input == "" || *output == "" || *existingPath == "" || !datasetID.MatchString(*dataset) || !datasetID.MatchString(*pricesDataset) {
+		return errors.New("input, output, existing, a proxy-before timestamp and owner/name datasets are required")
+	}
+	if (*catalogPath == "") != (*pricesOutput == "") {
+		return errors.New("catalog and prices-output are required together")
+	}
+	if *tokenEnv != "" && os.Getenv(*tokenEnv) == "" {
+		return errors.New("bearer token environment variable is empty")
+	}
+	p := plan{existing: map[string]bool{}, clients: map[string]string{}, cutoff: cutoff, replace: *replace}
+	if *clientMapPath != "" {
+		raw, err := os.ReadFile(*clientMapPath)
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal(raw, &p.clients); err != nil {
+			return err
+		}
+	}
+	if *catalogPath != "" {
+		raw, err := os.ReadFile(*catalogPath)
+		if err != nil {
+			return err
+		}
+		if p.book, err = usage.NewLiteLLMPriceBook(raw); err != nil {
+			return err
+		}
+	}
+	repairs := []row{}
+	if err := readLines(*existingPath, func(raw []byte) error {
+		snapshot := row{}
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.UseNumber()
+		if err := decoder.Decode(&snapshot); err != nil {
+			return err
+		}
+		if stringValue(snapshot["source"]) == "" || stringValue(snapshot["execution_id"]) == "" {
+			return errors.New("invalid existing IDV key")
+		}
+		p.existing[rowKey(snapshot)] = snapshot["account_id"] != nil
+		if !*replace {
+			return nil
+		}
+		repaired, err := repairTotals(snapshot)
+		if repaired != nil {
+			repairs = append(repairs, repaired)
+		}
+		return err
+	}); err != nil {
+		return err
+	}
+	rows, prices, stats, err := p.prepare(*input)
+	if err != nil {
+		return err
+	}
+	rows = append(rows, repairs...)
+	stats.RepairedTotals = len(repairs)
+
+	if err := writeNDJSON(*output, rows); err != nil {
+		return err
+	}
+	if *pricesOutput != "" {
+		if err := writeNDJSON(*pricesOutput, prices); err != nil {
+			return err
+		}
 	}
 	if err := json.NewEncoder(os.Stdout).Encode(stats); err != nil {
 		return err
@@ -381,7 +555,12 @@ func run(ctx context.Context, args []string) error {
 	}
 
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	return upload(ctx, client, strings.TrimRight(*url, "/")+"/api/datasets/"+*dataset+"/rows", os.Getenv(*tokenEnv), rows)
+	base := strings.TrimRight(*url, "/") + "/api/datasets/"
+	// Attempts reference their prices, so prices are delivered first.
+	if err := upload(ctx, client, base+*pricesDataset+"/rows", os.Getenv(*tokenEnv), prices); err != nil {
+		return err
+	}
+	return upload(ctx, client, base+*dataset+"/rows", os.Getenv(*tokenEnv), rows)
 }
 
 func main() {
