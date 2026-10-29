@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 )
 
 func number(value int64) *int64 { return &value }
@@ -116,7 +118,7 @@ func TestPrepareSkipsLiveExistingAndAdministrativeRecords(t *testing.T) {
 	native := sourceLog()
 	native.StartedAt, native.CompletedAt = cutoff, cutoff
 
-	rows, stats, err := prepare(writeExport(t, history, existing, live, admin, native), map[string]bool{"ai_proxy\x00existing": true}, nil, cutoff)
+	rows, _, stats, err := plan{existing: map[string]bool{"ai_proxy\x00existing": true}, cutoff: cutoff}.prepare(writeExport(t, history, existing, live, admin, native))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,11 +138,11 @@ func TestPrepareRejectsIncompleteExportAndDuplicateIdentity(t *testing.T) {
 		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err := prepare(path, nil, nil, time.Now()); err == nil {
+		if _, _, _, err := (plan{cutoff: time.Now()}).prepare(path); err == nil {
 			t.Fatal("accepted an incomplete export")
 		}
 	}
-	if _, _, err := prepare(writeExport(t, log, log), nil, nil, time.Now()); err == nil {
+	if _, _, _, err := (plan{cutoff: time.Now()}).prepare(writeExport(t, log, log)); err == nil {
 		t.Fatal("accepted a duplicate source identity")
 	}
 }
@@ -253,6 +255,112 @@ func TestHistoricalProjectionNeverForwardsPayloadsOrCredentials(t *testing.T) {
 	for _, private := range []string{"private-prompt", "private-response", "private-key"} {
 		if strings.Contains(string(encoded), private) {
 			t.Fatal("forwarded private source data")
+		}
+	}
+}
+
+func TestHistoricalNormalizesNamesAndDropsFailedCallEstimates(t *testing.T) {
+	log := sourceLog()
+	log.Model, log.RequestedModel, log.SessionID = "openai/gpt-6.1-sol", "gpt-6.1-sol", "session"
+	mapped, _, err := historicalRow(log, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mapped["provider"] != "codex" || mapped["executed_model"] != "gpt-6.1-sol" || mapped["requested_model"] != "gpt-6.1-sol" || mapped["session_id"] != "session" {
+		t.Fatalf("names not canonical: %+v", mapped)
+	}
+
+	log.Provider, log.Model = "xai", "xai/grok-4.6"
+	version := 1
+	log.ProxySchema = &version
+	mapped, _, err = historicalRow(log, nil)
+	if err != nil || mapped["provider"] != "xai" || mapped["executed_model"] != "grok-4.6" || mapped["session_id"] != nil {
+		t.Fatalf("proxy row kept LiteLLM session or provider prefix: %+v %v", mapped, err)
+	}
+
+	failed := sourceLog()
+	failed.Status, failed.Spend = "failure", text("0")
+	mapped, spend, err := historicalRow(failed, nil)
+	if err != nil || mapped["cost_status"] != "unpriced" || mapped["cost_usd"] != nil || spend.Sign() != 0 {
+		t.Fatalf("failed call kept LiteLLM spend: %+v %v", mapped, err)
+	}
+	for _, key := range []string{"input_tokens", "output_tokens", "total_tokens", "unclassified_tokens"} {
+		if value, ok := mapped[key].(*int64); (ok && value != nil) || (!ok && mapped[key] != nil) {
+			t.Fatalf("failed call kept LiteLLM estimate %s", key)
+		}
+	}
+}
+
+func testCatalog(t *testing.T) *usage.PriceBook {
+	t.Helper()
+	book, err := usage.NewLiteLLMPriceBook([]byte(`{"gpt-6.1-sol":{"litellm_provider":"openai","mode":"chat","input_cost_per_token":2e-6,"cache_read_input_token_cost":1e-7,"output_cost_per_token":1e-5}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return book
+}
+
+func TestRepriceReplacesSpendOnlyForCompleteUsage(t *testing.T) {
+	book := testCatalog(t)
+	log := sourceLog()
+	log.Model = "openai/gpt-6.1-sol"
+	log.CacheReadTokens, log.CacheWriteTokens, log.ReasoningTokens = number(70), number(0), number(5)
+	mapped, _, err := historicalRow(log, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	price, err := reprice(mapped, book)
+	if err != nil || price == nil {
+		t.Fatalf("complete usage not repriced: %v", err)
+	}
+	if mapped["cost_usd"] != "0.000267000" || mapped["cost_kind"] != "api_equivalent_estimate" || mapped["cost_status"] != "priced" || mapped["price_id"] == nil || mapped["pricing_snapshot"] == nil {
+		t.Fatalf("wrong estimate: %+v", mapped)
+	}
+	raw, _ := json.Marshal(price)
+	if !strings.Contains(string(raw), `"price_id":"`+mapped["price_id"].(string)+`"`) || !strings.Contains(string(raw), `"input_usd_per_mtok":"2"`) {
+		t.Fatalf("price record does not match the attempt: %s", raw)
+	}
+
+	log.CacheWriteTokens = nil
+	mapped, _, err = historicalRow(log, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	price, err = reprice(mapped, book)
+	if err != nil || price != nil || mapped["cost_kind"] != "source_reported" || mapped["cost_usd"] != "0.000001234568" {
+		t.Fatalf("incomplete usage lost LiteLLM spend: %+v %v", mapped, err)
+	}
+}
+
+func TestReplaceResendsExistingRowsAndRepairsLiveTotals(t *testing.T) {
+	version := 1
+	proxied := sourceLog()
+	proxied.RequestID, proxied.ProxySchema = "live", &version
+	export := writeExport(t, sourceLog(), proxied)
+	existing := filepath.Join(t.TempDir(), "existing.jsonl")
+	snapshot := `{"source":"litellm","execution_id":"request"}
+{"source":"ai_proxy","execution_id":"live","account_id":"account","started_at":"2026-10-28 23:46:04.793","completed_at":"2026-10-28 23:46:18.482","usage_quality":"complete","input_tokens":null,"output_tokens":null,"input_uncached_tokens":398,"cache_read_tokens":208384,"cache_write_tokens":0,"output_non_reasoning_tokens":40,"reasoning_tokens":231,"cost_usd":"0.0243444"}
+{"source":"ai_proxy","execution_id":"later","usage_quality":"complete","input_tokens":5}
+`
+	if err := os.WriteFile(existing, []byte(snapshot), 0600); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(t.TempDir(), "rows.ndjson")
+	if err := run(context.Background(), []string{"--input", export, "--existing", existing, "--output", output, "--proxy-before", "2026-10-28T23:24:05Z", "--replace"}); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != 2 || !strings.Contains(lines[0], `"execution_id":"request"`) {
+		t.Fatalf("existing row not re-sent: %s", raw)
+	}
+	for _, expected := range []string{`"input_tokens":208782`, `"output_tokens":271`, `"started_at":"2026-10-28T23:46:04.793Z"`, `"cost_usd":"0.0243444"`} {
+		if !strings.Contains(lines[1], expected) {
+			t.Fatalf("live row repair lacks %s: %s", expected, lines[1])
 		}
 	}
 }
