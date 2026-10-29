@@ -281,7 +281,7 @@ func TestHistoricalNormalizesNamesAndDropsFailedCallEstimates(t *testing.T) {
 	failed := sourceLog()
 	failed.Status, failed.Spend = "failure", text("0")
 	mapped, spend, err := historicalRow(failed, nil)
-	if err != nil || mapped["cost_status"] != "unpriced" || mapped["cost_usd"] != nil || spend.Sign() != 0 {
+	if err != nil || mapped["cost_status"] != "unpriced" || mapped["cost_usd"] != nil || mapped["cost_kind"] != nil || spend.Sign() != 0 {
 		t.Fatalf("failed call kept LiteLLM spend: %+v %v", mapped, err)
 	}
 	for _, key := range []string{"input_tokens", "output_tokens", "total_tokens", "unclassified_tokens"} {
