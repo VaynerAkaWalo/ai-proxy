@@ -47,6 +47,7 @@ func effectiveSDKConfig(cfg *config.Config) *config.SDKConfig {
 	sdkCfg := cfg.SDKConfig
 	sdkCfg.CodexOrphanDelegationCompatibility = cfg.Codex.OrphanDelegationCompatibility
 	sdkCfg.CodexResponseSteering = cfg.Codex.ResponseSteering
+	sdkCfg.ProjectPaths = cfg.AccountingOutbox.ProjectPaths
 	if cfg.CommercialMode {
 		sdkCfg.RequestLog = false
 	}

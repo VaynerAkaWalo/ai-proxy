@@ -148,6 +148,9 @@ func (e *IDVExporter) ExportOnce(ctx context.Context) error {
 			return err
 		}
 		row, errRow := newIDVRow(event)
+		if e.cfg.ExportProject {
+			row.Project = nullableString(event.Project)
+		}
 		var price *idvPriceRow
 		var errPrice error
 		if errRow == nil && e.cfg.PricesDataset != "" {

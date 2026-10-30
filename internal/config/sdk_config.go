@@ -33,6 +33,9 @@ type SDKConfig struct {
 	// CodexResponseSteering mirrors the provider-wide runtime setting for API handlers.
 	CodexResponseSteering bool `yaml:"-" json:"-"`
 
+	// ProjectPaths mirrors observability.accounting-outbox.project-paths for API handlers.
+	ProjectPaths map[string]string `yaml:"-" json:"-"`
+
 	// ProxyURL is the URL of an optional proxy server to use for outbound requests.
 	ProxyURL string `yaml:"proxy-url" json:"proxy-url"`
 

@@ -21,6 +21,7 @@ type idvRow struct {
 	ClientID                 *string   `json:"client_id"`
 	AccountID                *string   `json:"account_id"`
 	SessionID                *string   `json:"session_id"`
+	Project                  *string   `json:"project,omitempty"`
 	ServiceTier              *string   `json:"service_tier"`
 	Status                   string    `json:"status"`
 	StatusCode               *int      `json:"status_code"`

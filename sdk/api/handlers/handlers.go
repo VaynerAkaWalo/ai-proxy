@@ -318,8 +318,10 @@ func extractSessionIDsFromRequest(request *http.Request) (string, string) {
 }
 
 // EnrichContextWithSessionHierarchy extracts canonical session and parent session identities
-// from headers, payload, and metadata and records them in ClientRequestMetadata.
+// and the accounting project from headers, payload, and metadata and records them in ClientRequestMetadata.
 func EnrichContextWithSessionHierarchy(ctx context.Context, headers http.Header, payload []byte, metadata map[string]any) context.Context {
+	ctx = enrichContextWithProject(ctx, payload)
+
 	meta := logging.GetClientRequestMetadata(ctx)
 	if info, ok := coresession.ExtractSessionInfo(headers, payload, metadata); ok {
 		meta.SessionID = info.SessionID
@@ -434,6 +436,7 @@ type BaseAPIHandler struct {
 // Returns:
 //   - *BaseAPIHandler: A new API handlers instance
 func NewBaseAPIHandlers(cfg *config.SDKConfig, authManager *coreauth.Manager) *BaseAPIHandler {
+	setProjectPaths(cfg)
 	return &BaseAPIHandler{
 		Cfg:         cfg,
 		AuthManager: authManager,
@@ -450,6 +453,7 @@ func (h *BaseAPIHandler) UpdateClients(cfg *config.SDKConfig) {
 	if h == nil {
 		return
 	}
+	setProjectPaths(cfg)
 	h.runtimeMu.Lock()
 	h.Cfg = cfg
 	h.runtimeMu.Unlock()

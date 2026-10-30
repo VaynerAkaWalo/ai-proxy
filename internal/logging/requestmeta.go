@@ -23,6 +23,7 @@ type ClientRequestMetadata struct {
 	NodeKind         string
 	IsFork           bool
 	IsCompaction     bool
+	Project          string
 }
 
 type responseStatusHolder struct {
