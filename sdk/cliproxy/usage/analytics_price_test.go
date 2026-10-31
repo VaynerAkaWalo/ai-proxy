@@ -25,9 +25,9 @@ func archivedPriceEvent(id string) AccountingEvent {
 	return event
 }
 
-func TestIDVPriceIdentityAndExactRates(t *testing.T) {
+func TestAnalyticsPriceIdentityAndExactRates(t *testing.T) {
 	event := archivedPriceEvent("one")
-	row, err := newIDVPriceRow(event.Estimate)
+	row, err := newAnalyticsPriceRow(event.Estimate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,22 +37,22 @@ func TestIDVPriceIdentityAndExactRates(t *testing.T) {
 
 	event.Estimate.Snapshot = "another-catalog"
 	event.Estimate.Rates.Output = priceString("0.000015000")
-	same, err := newIDVPriceRow(event.Estimate)
+	same, err := newAnalyticsPriceRow(event.Estimate)
 	if err != nil || !reflect.DeepEqual(row, same) {
 		t.Fatalf("equivalent rate changed identity: %+v %v", same, err)
 	}
 	event.Estimate.Rates.MinContext++
-	changed, err := newIDVPriceRow(event.Estimate)
+	changed, err := newAnalyticsPriceRow(event.Estimate)
 	if err != nil || changed.PriceID == row.PriceID {
 		t.Fatal("context band did not change identity")
 	}
 	event.Estimate.Rates.Input = priceString("0.0000025000000000001")
-	if _, err := newIDVPriceRow(event.Estimate); err == nil {
+	if _, err := newAnalyticsPriceRow(event.Estimate); err == nil {
 		t.Fatal("silently rounded an unrepresentable rate")
 	}
 }
 
-func TestIDVArchivesPricesBeforeUsageAndRetriesBoth(t *testing.T) {
+func TestAnalyticsArchivesPricesBeforeUsageAndRetriesBoth(t *testing.T) {
 	for _, failAt := range []string{"prices", "usage"} {
 		t.Run(failAt, func(t *testing.T) {
 			var calls []string
@@ -103,9 +103,9 @@ func TestIDVArchivesPricesBeforeUsageAndRetriesBoth(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			cfg := idvConfig(server.URL)
+			cfg := analyticsConfig(server.URL)
 			cfg.PricesDataset = "pawel/prices"
-			exporter := NewIDVExporter(o, cfg)
+			exporter := NewAnalyticsExporter(o, cfg)
 
 			if err := exporter.ExportOnce(context.Background()); err != nil {
 				t.Fatal(err)
@@ -143,16 +143,16 @@ func TestIDVArchivesPricesBeforeUsageAndRetriesBoth(t *testing.T) {
 	}
 }
 
-func TestIDVInvalidPriceRemainsRetryable(t *testing.T) {
+func TestAnalyticsInvalidPriceRemainsRetryable(t *testing.T) {
 	o := openTestOutbox(t, config.AccountingOutboxConfig{})
 	event := archivedPriceEvent("one")
 	event.Estimate.Rates.Input = priceString("0.0000000000000000001")
 	if err := o.Insert(event); err != nil {
 		t.Fatal(err)
 	}
-	cfg := idvConfig("http://unused.invalid")
+	cfg := analyticsConfig("http://unused.invalid")
 	cfg.PricesDataset = "pawel/prices"
-	exporter := NewIDVExporter(o, cfg)
+	exporter := NewAnalyticsExporter(o, cfg)
 
 	if err := exporter.ExportOnce(context.Background()); err != nil {
 		t.Fatal(err)
@@ -164,7 +164,7 @@ func TestIDVInvalidPriceRemainsRetryable(t *testing.T) {
 	}
 }
 
-func TestIDVUnknownPriceExportsUsageWithoutReference(t *testing.T) {
+func TestAnalyticsUnknownPriceExportsUsageWithoutReference(t *testing.T) {
 	var payload map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/datasets/pawel/llm_usage/rows" {
@@ -180,10 +180,10 @@ func TestIDVUnknownPriceExportsUsageWithoutReference(t *testing.T) {
 	if err := o.Insert(exportEvent("unknown")); err != nil {
 		t.Fatal(err)
 	}
-	cfg := idvConfig(server.URL)
+	cfg := analyticsConfig(server.URL)
 	cfg.PricesDataset = "pawel/prices"
 
-	if err := NewIDVExporter(o, cfg).ExportOnce(context.Background()); err != nil {
+	if err := NewAnalyticsExporter(o, cfg).ExportOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 

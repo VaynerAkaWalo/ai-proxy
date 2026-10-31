@@ -16,11 +16,11 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-type IDVExporter struct {
+type AnalyticsExporter struct {
 	deliveries deliveryQueue
 
 	outbox   *Outbox
-	cfg      config.IDVExporterConfig
+	cfg      config.AnalyticsExporterConfig
 	client   *http.Client
 	token    string
 	mu       sync.RWMutex
@@ -32,28 +32,28 @@ type IDVExporter struct {
 	done            chan struct{}
 }
 
-func NewIDVExporter(outbox *Outbox, cfg config.IDVExporterConfig) *IDVExporter {
+func NewAnalyticsExporter(outbox *Outbox, cfg config.AnalyticsExporterConfig) *AnalyticsExporter {
 	// A redirect must not forward credentials or change ingestion POST semantics.
 	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: (&net.Dialer{}).DialContext, ForceAttemptHTTP2: true}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	return &IDVExporter{deliveries: outbox.deliveriesFor("idv"), outbox: outbox, cfg: cfg, client: client, token: os.Getenv(cfg.TokenEnv), status: "disabled"}
+	return &AnalyticsExporter{deliveries: outbox.deliveriesFor("analytics"), outbox: outbox, cfg: cfg, client: client, token: os.Getenv(cfg.TokenEnv), status: "disabled"}
 }
 
-func (e *IDVExporter) Status() string {
+func (e *AnalyticsExporter) Status() string {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.status
 }
 
-func (e *IDVExporter) setStatus(status string) {
+func (e *AnalyticsExporter) setStatus(status string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.status != status {
-		log.WithField("accounting_exporter_status", status).Infof("IDV accounting status: %s", status)
+		log.WithField("accounting_exporter_status", status).Infof("Analytics accounting status: %s", status)
 	}
 	e.status = status
 }
 
-func (e *IDVExporter) Start() {
+func (e *AnalyticsExporter) Start() {
 	ctx, cancel := context.WithCancel(context.Background())
 	e.cancel, e.done = cancel, make(chan struct{})
 	go func() {
@@ -92,7 +92,7 @@ func (e *IDVExporter) Start() {
 	}()
 }
 
-func (e *IDVExporter) Stop(ctx context.Context) error {
+func (e *AnalyticsExporter) Stop(ctx context.Context) error {
 	if e.cancel == nil {
 		return nil
 	}
@@ -106,8 +106,8 @@ func (e *IDVExporter) Stop(ctx context.Context) error {
 	}
 }
 
-// ExportOnce retries uncertain outcomes safely because IDV replaces rows by their stable attempt key.
-func (e *IDVExporter) ExportOnce(ctx context.Context) error {
+// ExportOnce retries uncertain outcomes safely because Analytics replaces rows by their stable attempt key.
+func (e *AnalyticsExporter) ExportOnce(ctx context.Context) error {
 	e.exportMu.Lock()
 	defer e.exportMu.Unlock()
 	if !e.cfg.Enabled {
@@ -126,7 +126,7 @@ func (e *IDVExporter) ExportOnce(ctx context.Context) error {
 	return nil
 }
 
-func (e *IDVExporter) exportAttempts(ctx context.Context) error {
+func (e *AnalyticsExporter) exportAttempts(ctx context.Context) error {
 	ids, err := e.deliveries.ReadyIDs(64)
 	if err != nil {
 		return err
@@ -158,14 +158,14 @@ func (e *IDVExporter) exportAttempts(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		row, errRow := newIDVRow(event)
+		row, errRow := newAnalyticsRow(event)
 		if e.cfg.ExportProject {
 			row.Project = nullableString(event.Project)
 		}
-		var price *idvPriceRow
+		var price *analyticsPriceRow
 		var errPrice error
 		if errRow == nil && e.cfg.PricesDataset != "" {
-			price, errPrice = newIDVPriceRow(event.Estimate)
+			price, errPrice = newAnalyticsPriceRow(event.Estimate)
 		}
 		if errRow != nil {
 			e.setStatus("invalid_event")
@@ -218,11 +218,11 @@ func (e *IDVExporter) exportAttempts(ctx context.Context) error {
 	return nil
 }
 
-func (e *IDVExporter) send(ctx context.Context, body []byte, rows int) (DeliveryState, bool) {
+func (e *AnalyticsExporter) send(ctx context.Context, body []byte, rows int) (DeliveryState, bool) {
 	return e.sendDataset(ctx, e.cfg.Dataset, body, rows)
 }
 
-func (e *IDVExporter) sendDataset(ctx context.Context, dataset string, body []byte, rows int) (DeliveryState, bool) {
+func (e *AnalyticsExporter) sendDataset(ctx context.Context, dataset string, body []byte, rows int) (DeliveryState, bool) {
 	endpoint := strings.TrimRight(e.cfg.URL, "/") + "/api/datasets/" + dataset + "/rows"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {

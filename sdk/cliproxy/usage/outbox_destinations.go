@@ -18,17 +18,17 @@ type deliveryQueue struct {
 }
 
 func (o *Outbox) destinationEnabled(destination string) bool {
-	if destination == "idv" {
-		return o.cfg.IDV.Enabled
+	if destination == "analytics" {
+		return o.cfg.Analytics.Enabled
 	}
 	return o.cfg.LiteLLM.Enabled
 }
 
 func (o *Outbox) secondaryDestination() string {
-	if o.primaryDestination == "idv" {
+	if o.primaryDestination == "analytics" {
 		return "litellm"
 	}
-	return "idv"
+	return "analytics"
 }
 
 func (o *Outbox) deliveriesFor(destination string) deliveryQueue {
@@ -87,14 +87,14 @@ func (o *Outbox) initializeDestinations(tx *bolt.Tx) error {
 	primary := string(metadata.Get(primaryDestinationKey))
 	if primary == "" {
 		primary = "litellm"
-		if o.cfg.IDV.Enabled && !o.cfg.LiteLLM.Enabled {
-			primary = "idv"
+		if o.cfg.Analytics.Enabled && !o.cfg.LiteLLM.Enabled {
+			primary = "analytics"
 		}
 		if err := metadata.Put(primaryDestinationKey, []byte(primary)); err != nil {
 			return err
 		}
 	}
-	if primary != "litellm" && primary != "idv" {
+	if primary != "litellm" && primary != "analytics" {
 		return errors.New("invalid primary accounting destination")
 	}
 	o.primaryDestination = primary

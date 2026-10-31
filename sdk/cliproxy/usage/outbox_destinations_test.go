@@ -21,8 +21,8 @@ func dualExporterConfig(t *testing.T) config.AccountingOutboxConfig {
 
 	return config.AccountingOutboxConfig{
 		Enabled: true, DataPath: t.TempDir(), RetentionHours: 1,
-		LiteLLM: exporterConfig("http://localhost:4000"),
-		IDV:     idvConfig("http://localhost:3000"),
+		LiteLLM:   exporterConfig("http://localhost:4000"),
+		Analytics: analyticsConfig("http://localhost:3000"),
 	}
 }
 
@@ -43,13 +43,13 @@ func resolveQueue(t *testing.T, queue deliveryQueue, id string, state DeliverySt
 
 func TestDualExportersRetryIndependently(t *testing.T) {
 	t.Setenv("TEST_LITELLM_ADMIN", "test-admin")
-	for _, failAt := range []string{"idv", "litellm"} {
+	for _, failAt := range []string{"analytics", "litellm"} {
 		t.Run(failAt, func(t *testing.T) {
 			calls := map[string]int{}
 			var mu sync.Mutex
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				_, _ = io.Copy(io.Discard, r.Body)
-				destination := "idv"
+				destination := "analytics"
 				if r.URL.Path == "/v1/rust_control_plane/logs" {
 					destination = "litellm"
 				}
@@ -62,7 +62,7 @@ func TestDualExportersRetryIndependently(t *testing.T) {
 					w.WriteHeader(503)
 					return
 				}
-				if destination == "idv" {
+				if destination == "analytics" {
 					_, _ = io.WriteString(w, `{"rows":1}`)
 				} else {
 					_, _ = io.WriteString(w, `{"processed":1,"failed":0,"failures":[]}`)
@@ -71,17 +71,17 @@ func TestDualExportersRetryIndependently(t *testing.T) {
 			defer server.Close()
 
 			cfg := dualExporterConfig(t)
-			cfg.IDV.URL, cfg.LiteLLM.URL = server.URL, server.URL
+			cfg.Analytics.URL, cfg.LiteLLM.URL = server.URL, server.URL
 			o := openTestOutbox(t, cfg)
 			now := time.Unix(1800000000, 0)
 			o.now = func() time.Time { return now }
 			if err := o.Insert(exportEvent("both")); err != nil {
 				t.Fatal(err)
 			}
-			idv := NewIDVExporter(o, cfg.IDV)
+			analytics := NewAnalyticsExporter(o, cfg.Analytics)
 			litellm := NewLiteLLMExporter(o, cfg.LiteLLM)
 			results := make(chan error, 2)
-			go func() { results <- idv.ExportOnce(context.Background()) }()
+			go func() { results <- analytics.ExportOnce(context.Background()) }()
 			go func() { results <- litellm.ExportOnce(context.Background()) }()
 			for i := 0; i < 2; i++ {
 				if err := <-results; err != nil {
@@ -100,7 +100,7 @@ func TestDualExportersRetryIndependently(t *testing.T) {
 			if _, err := o.Event("both"); err != nil {
 				t.Fatalf("pruned event before both deliveries completed: %v", err)
 			}
-			if err := idv.ExportOnce(context.Background()); err != nil {
+			if err := analytics.ExportOnce(context.Background()); err != nil {
 				t.Fatal(err)
 			}
 			if err := litellm.ExportOnce(context.Background()); err != nil {
@@ -135,7 +135,7 @@ func TestDualExportersRetryIndependently(t *testing.T) {
 
 func TestDualExporterMigrationPreservesLegacyAcknowledgements(t *testing.T) {
 	cfg := dualExporterConfig(t)
-	cfg.IDV.Enabled = false
+	cfg.Analytics.Enabled = false
 	o := openTestOutbox(t, cfg)
 	for _, id := range []string{"history", "pending", "uncertain"} {
 		if err := o.Insert(exportEvent(id)); err != nil {
@@ -153,32 +153,32 @@ func TestDualExporterMigrationPreservesLegacyAcknowledgements(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg.IDV.Enabled = true
+	cfg.Analytics.Enabled = true
 	recovered := openTestOutbox(t, cfg)
 	legacy, err := recovered.deliveriesFor("litellm").Delivery("history")
 	if err != nil || legacy.State != DeliveryAcknowledged {
 		t.Fatalf("legacy acknowledgement changed: %+v %v", legacy, err)
 	}
-	if _, err := recovered.deliveriesFor("idv").Delivery("history"); !errors.Is(err, os.ErrNotExist) {
+	if _, err := recovered.deliveriesFor("analytics").Delivery("history"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("history automatically replayed: %v", err)
 	}
 	legacy, err = recovered.deliveriesFor("litellm").Delivery("uncertain")
 	if err != nil || legacy.State != DeliveryAmbiguous {
 		t.Fatalf("unsafe LiteLLM retry: %+v %v", legacy, err)
 	}
-	ids, err := recovered.deliveriesFor("idv").ReadyIDs(64)
+	ids, err := recovered.deliveriesFor("analytics").ReadyIDs(64)
 	if err != nil || len(ids) != 2 {
 		t.Fatalf("missing independent pending deliveries: %v %v", ids, err)
 	}
 }
 
-func TestDualExporterRestartRequeuesOnlyIDV(t *testing.T) {
+func TestDualExporterRestartRequeuesOnlyAnalytics(t *testing.T) {
 	cfg := dualExporterConfig(t)
 	o := openTestOutbox(t, cfg)
 	if err := o.Insert(exportEvent("crashed")); err != nil {
 		t.Fatal(err)
 	}
-	for _, destination := range []string{"litellm", "idv"} {
+	for _, destination := range []string{"litellm", "analytics"} {
 		if claimed, err := o.deliveriesFor(destination).Claim("crashed"); err != nil || !claimed {
 			t.Fatal(err)
 		}
@@ -188,10 +188,10 @@ func TestDualExporterRestartRequeuesOnlyIDV(t *testing.T) {
 	}
 
 	recovered := openTestOutbox(t, cfg)
-	for _, destination := range []string{"litellm", "idv"} {
+	for _, destination := range []string{"litellm", "analytics"} {
 		delivery, err := recovered.deliveriesFor(destination).Delivery("crashed")
 		expected := DeliveryAmbiguous
-		if destination == "idv" {
+		if destination == "analytics" {
 			expected = DeliveryRetryable
 		}
 		if err != nil || delivery.State != expected || delivery.Attempts != 1 {
@@ -201,10 +201,10 @@ func TestDualExporterRestartRequeuesOnlyIDV(t *testing.T) {
 }
 
 func TestDualExporterDestinationOwnershipSurvivesConfigChanges(t *testing.T) {
-	for _, primary := range []string{"idv", "litellm"} {
+	for _, primary := range []string{"analytics", "litellm"} {
 		t.Run(primary, func(t *testing.T) {
 			cfg := dualExporterConfig(t)
-			cfg.IDV.Enabled = primary == "idv"
+			cfg.Analytics.Enabled = primary == "analytics"
 			cfg.LiteLLM.Enabled = primary == "litellm"
 			o := openTestOutbox(t, cfg)
 			if err := o.Insert(exportEvent("old")); err != nil {
@@ -215,7 +215,7 @@ func TestDualExporterDestinationOwnershipSurvivesConfigChanges(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			cfg.IDV.Enabled, cfg.LiteLLM.Enabled = true, true
+			cfg.Analytics.Enabled, cfg.LiteLLM.Enabled = true, true
 			both := openTestOutbox(t, cfg)
 			if err := both.Insert(exportEvent("new")); err != nil {
 				t.Fatal(err)
@@ -227,7 +227,7 @@ func TestDualExporterDestinationOwnershipSurvivesConfigChanges(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			cfg.IDV.Enabled, cfg.LiteLLM.Enabled = other == "idv", other == "litellm"
+			cfg.Analytics.Enabled, cfg.LiteLLM.Enabled = other == "analytics", other == "litellm"
 			recovered := openTestOutbox(t, cfg)
 			ids, err := recovered.deliveriesFor(other).ReadyIDs(64)
 			if err != nil || len(ids) != 1 || ids[0] != "new" {
@@ -244,15 +244,15 @@ func TestDualExporterDestinationOwnershipSurvivesConfigChanges(t *testing.T) {
 	}
 }
 
-func TestDualExporterRepricingUpdatesDeliveredIDVFact(t *testing.T) {
+func TestDualExporterRepricingUpdatesDeliveredAnalyticsFact(t *testing.T) {
 	o := openTestOutbox(t, dualExporterConfig(t))
 	event := exportEvent("unpriced")
 	event.Estimate = &CostEstimate{Status: "unpriced"}
 	if err := o.Insert(event); err != nil {
 		t.Fatal(err)
 	}
-	idv := o.deliveriesFor("idv")
-	if claimed, err := idv.Claim(event.ExecutionID); err != nil || !claimed {
+	analytics := o.deliveriesFor("analytics")
+	if claimed, err := analytics.Claim(event.ExecutionID); err != nil || !claimed {
 		t.Fatal(err)
 	}
 	o.prices.Store(testPriceBook(t, config.PriceRate{
@@ -264,11 +264,11 @@ func TestDualExporterRepricingUpdatesDeliveredIDVFact(t *testing.T) {
 	if err != nil || inflight.Estimate.Status != "unpriced" {
 		t.Fatalf("changed an in-flight payload: %+v %v", inflight.Estimate, err)
 	}
-	delivery, err := idv.Delivery(event.ExecutionID)
+	delivery, err := analytics.Delivery(event.ExecutionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := idv.Resolve(event.ExecutionID, delivery.Attempts, DeliveryAcknowledged, time.Time{}); err != nil {
+	if err := analytics.Resolve(event.ExecutionID, delivery.Attempts, DeliveryAcknowledged, time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	updated, err := o.repriceUnpricedEvent(event.ExecutionID)
@@ -276,7 +276,7 @@ func TestDualExporterRepricingUpdatesDeliveredIDVFact(t *testing.T) {
 		t.Fatalf("failed to reprice: %+v %v", updated.Estimate, err)
 	}
 
-	ids, err := idv.ReadyIDs(64)
+	ids, err := analytics.ReadyIDs(64)
 	if err != nil || len(ids) != 1 || ids[0] != event.ExecutionID {
 		raw, _ := json.Marshal(updated)
 		t.Fatalf("updated fact not requeued: %v %v %s", ids, err, raw)

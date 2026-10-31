@@ -22,8 +22,8 @@ func QuotaSnapshotsDataset(attemptsDataset string) string {
 }
 
 // exportQuotaSnapshots deletes rows only after the receiver acks the exact count.
-// IDV replaces rows by key, so resending is safe.
-func (e *IDVExporter) exportQuotaSnapshots(ctx context.Context) error {
+// Analytics replaces rows by key, so resending is safe.
+func (e *AnalyticsExporter) exportQuotaSnapshots(ctx context.Context) error {
 	if !e.quotaRegistered && !e.registerQuotaDataset(ctx) {
 		return nil
 	}
@@ -49,7 +49,7 @@ func (e *IDVExporter) exportQuotaSnapshots(ctx context.Context) error {
 }
 
 // registerQuotaDataset creates the dataset; 409 means it already exists.
-func (e *IDVExporter) registerQuotaDataset(ctx context.Context) bool {
+func (e *AnalyticsExporter) registerQuotaDataset(ctx context.Context) bool {
 	payload, err := json.Marshal(map[string]string{"id": QuotaSnapshotsDataset(e.cfg.Dataset), "implements": quotaSnapshotsImplements})
 	if err != nil {
 		return false

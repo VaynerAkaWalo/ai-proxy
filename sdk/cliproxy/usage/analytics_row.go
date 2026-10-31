@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-type idvRow struct {
+type analyticsRow struct {
 	InputTokens              *int64    `json:"input_tokens"`
 	OutputTokens             *int64    `json:"output_tokens"`
 	PriceID                  *string   `json:"price_id,omitempty"`
@@ -39,7 +39,7 @@ type idvRow struct {
 	PricingSnapshot          *string   `json:"pricing_snapshot"`
 }
 
-var idvAmountPattern = regexp.MustCompile(`^(0|[1-9]\d{0,11})(\.\d{1,12})?$`)
+var analyticsAmountPattern = regexp.MustCompile(`^(0|[1-9]\d{0,11})(\.\d{1,12})?$`)
 
 func nullableString(value string) *string {
 	if value == "" {
@@ -48,22 +48,22 @@ func nullableString(value string) *string {
 	return &value
 }
 
-func idvTokenCount(value int64, knownZero bool) *int64 {
+func analyticsTokenCount(value int64, knownZero bool) *int64 {
 	if value < 0 || (value == 0 && !knownZero) {
 		return nil
 	}
 	return &value
 }
 
-func newIDVRow(event AccountingEvent) (idvRow, error) {
+func newAnalyticsRow(event AccountingEvent) (analyticsRow, error) {
 	if event.ExecutionID == "" || event.StartedAt.IsZero() || event.CompletedAt.Before(event.StartedAt) {
-		return idvRow{}, errors.New("invalid attempt identity or timestamps")
+		return analyticsRow{}, errors.New("invalid attempt identity or timestamps")
 	}
 	if event.Status != "succeeded" && event.Status != "failed" && event.Status != "interrupted" {
-		return idvRow{}, errors.New("invalid attempt status")
+		return analyticsRow{}, errors.New("invalid attempt status")
 	}
 
-	row := idvRow{
+	row := analyticsRow{
 		Source: "ai_proxy", ExecutionID: event.ExecutionID,
 		TraceID:   nullableString(event.TraceID),
 		StartedAt: event.StartedAt.UTC(), CompletedAt: event.CompletedAt.UTC(),
@@ -81,26 +81,26 @@ func newIDVRow(event AccountingEvent) (idvRow, error) {
 		if b.Valid() {
 			complete := b.Quality == TokenAccountingQualityComplete
 			if complete {
-				row.InputTokens = idvTokenCount(b.Input.TotalTokens, true)
-				row.OutputTokens = idvTokenCount(b.Output.TotalTokens, true)
+				row.InputTokens = analyticsTokenCount(b.Input.TotalTokens, true)
+				row.OutputTokens = analyticsTokenCount(b.Output.TotalTokens, true)
 			}
 			row.UsageQuality = string(b.Quality)
-			row.InputUncachedTokens = idvTokenCount(b.Input.UncachedTokens, complete)
-			row.CacheReadTokens = idvTokenCount(b.Input.CacheReadTokens, complete)
-			row.CacheWriteTokens = idvTokenCount(b.Input.CacheWriteTokens, complete)
-			row.OutputNonReasoningTokens = idvTokenCount(b.Output.NonReasoningTokens, complete)
-			row.ReasoningTokens = idvTokenCount(b.Output.ReasoningTokens, complete)
-			row.TotalTokens = idvTokenCount(b.TotalTokens, true)
-			row.UnclassifiedTokens = idvTokenCount(b.UnclassifiedTokens, true)
+			row.InputUncachedTokens = analyticsTokenCount(b.Input.UncachedTokens, complete)
+			row.CacheReadTokens = analyticsTokenCount(b.Input.CacheReadTokens, complete)
+			row.CacheWriteTokens = analyticsTokenCount(b.Input.CacheWriteTokens, complete)
+			row.OutputNonReasoningTokens = analyticsTokenCount(b.Output.NonReasoningTokens, complete)
+			row.ReasoningTokens = analyticsTokenCount(b.Output.ReasoningTokens, complete)
+			row.TotalTokens = analyticsTokenCount(b.TotalTokens, true)
+			row.UnclassifiedTokens = analyticsTokenCount(b.UnclassifiedTokens, true)
 		} else {
 			row.UsageQuality = "inconsistent"
-			row.TotalTokens = idvTokenCount(event.Tokens.Total, false)
+			row.TotalTokens = analyticsTokenCount(event.Tokens.Total, false)
 		}
 	}
 	if estimate := event.Estimate; estimate != nil {
 		row.CostKind = nullableString(estimate.Kind)
 		row.PricingSnapshot = nullableString(estimate.Snapshot)
-		if estimate.Currency == "USD" && (estimate.Status == "priced" || estimate.Status == "partial") && estimate.Amount != nil && idvAmountPattern.MatchString(*estimate.Amount) {
+		if estimate.Currency == "USD" && (estimate.Status == "priced" || estimate.Status == "partial") && estimate.Amount != nil && analyticsAmountPattern.MatchString(*estimate.Amount) {
 			row.CostUSD = estimate.Amount
 			row.CostStatus = estimate.Status
 		}

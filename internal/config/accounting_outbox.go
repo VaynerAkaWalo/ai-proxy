@@ -51,7 +51,7 @@ type LiteLLMIdentity struct {
 	TeamID  string `yaml:"team-id" json:"team-id"`
 }
 
-type IDVExporterConfig struct {
+type AnalyticsExporterConfig struct {
 	Enabled       bool   `yaml:"enabled" json:"enabled"`
 	URL           string `yaml:"url" json:"url"`
 	Dataset       string `yaml:"dataset" json:"dataset"`
@@ -80,20 +80,20 @@ func (c QuotaSnapshotsConfig) QuotaSnapshotInterval() time.Duration {
 	return time.Duration(c.IntervalSeconds) * time.Second
 }
 
-var idvDecimalPattern = regexp.MustCompile(`^(0|[1-9]\d{0,11})(\.\d{1,12})?$`)
-var idvDatasetPattern = regexp.MustCompile(`^[a-z0-9_-]+/[a-z0-9_]+$`)
+var analyticsDecimalPattern = regexp.MustCompile(`^(0|[1-9]\d{0,11})(\.\d{1,12})?$`)
+var analyticsDatasetPattern = regexp.MustCompile(`^[a-z0-9_-]+/[a-z0-9_]+$`)
 
 type AccountingOutboxConfig struct {
-	LiteLLM         LiteLLMExporterConfig `yaml:"litellm" json:"litellm"`
-	IDV             IDVExporterConfig     `yaml:"idv" json:"idv"`
-	Pricing         PricingConfig         `yaml:"pricing" json:"pricing"`
-	Enabled         bool                  `yaml:"enabled" json:"enabled"`
-	DataPath        string                `yaml:"data-path" json:"data-path"`
-	QueueCapacity   int                   `yaml:"queue-capacity" json:"queue-capacity"`
-	MaxDiskMB       int                   `yaml:"max-disk-mb" json:"max-disk-mb"`
-	MaxEvents       int                   `yaml:"max-events" json:"max-events"`
-	RetentionHours  int                   `yaml:"retention-hours" json:"retention-hours"`
-	ShutdownSeconds int                   `yaml:"shutdown-seconds" json:"shutdown-seconds"`
+	LiteLLM         LiteLLMExporterConfig   `yaml:"litellm" json:"litellm"`
+	Analytics       AnalyticsExporterConfig `yaml:"analytics" json:"analytics"`
+	Pricing         PricingConfig           `yaml:"pricing" json:"pricing"`
+	Enabled         bool                    `yaml:"enabled" json:"enabled"`
+	DataPath        string                  `yaml:"data-path" json:"data-path"`
+	QueueCapacity   int                     `yaml:"queue-capacity" json:"queue-capacity"`
+	MaxDiskMB       int                     `yaml:"max-disk-mb" json:"max-disk-mb"`
+	MaxEvents       int                     `yaml:"max-events" json:"max-events"`
+	RetentionHours  int                     `yaml:"retention-hours" json:"retention-hours"`
+	ShutdownSeconds int                     `yaml:"shutdown-seconds" json:"shutdown-seconds"`
 	// ProjectPaths maps a client working directory prefix to its project name.
 	ProjectPaths map[string]string `yaml:"project-paths" json:"project-paths"`
 }
@@ -122,24 +122,24 @@ func (c AccountingOutboxConfig) Defaults() AccountingOutboxConfig {
 
 func (c AccountingOutboxConfig) Validate() error {
 	c = c.Defaults()
-	if c.IDV.Enabled {
-		u, err := url.Parse(c.IDV.URL)
-		if !c.Enabled || err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || !idvDatasetPattern.MatchString(c.IDV.Dataset) {
-			return fmt.Errorf("IDV exporter requires an enabled outbox, HTTP(S) URL without credentials or query, and an owner/name dataset")
+	if c.Analytics.Enabled {
+		u, err := url.Parse(c.Analytics.URL)
+		if !c.Enabled || err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || !analyticsDatasetPattern.MatchString(c.Analytics.Dataset) {
+			return fmt.Errorf("Analytics exporter requires an enabled outbox, HTTP(S) URL without credentials or query, and an owner/name dataset")
 		}
-		if c.IDV.PricesDataset != "" && (!idvDatasetPattern.MatchString(c.IDV.PricesDataset) || c.IDV.PricesDataset == c.IDV.Dataset) {
-			return fmt.Errorf("IDV prices-dataset must be a different owner/name dataset")
+		if c.Analytics.PricesDataset != "" && (!analyticsDatasetPattern.MatchString(c.Analytics.PricesDataset) || c.Analytics.PricesDataset == c.Analytics.Dataset) {
+			return fmt.Errorf("Analytics prices-dataset must be a different owner/name dataset")
 		}
 	}
-	if c.IDV.QuotaSnapshots.Enabled && !c.IDV.Enabled {
-		return fmt.Errorf("IDV quota-snapshots requires the IDV exporter to be enabled")
+	if c.Analytics.QuotaSnapshots.Enabled && !c.Analytics.Enabled {
+		return fmt.Errorf("Analytics quota-snapshots requires the Analytics exporter to be enabled")
 	}
-	if c.IDV.QuotaSnapshots.IntervalSeconds < 0 || c.IDV.QuotaSnapshots.IntervalSeconds > 86400 {
-		return fmt.Errorf("invalid IDV quota-snapshots interval-seconds")
+	if c.Analytics.QuotaSnapshots.IntervalSeconds < 0 || c.Analytics.QuotaSnapshots.IntervalSeconds > 86400 {
+		return fmt.Errorf("invalid Analytics quota-snapshots interval-seconds")
 	}
-	for plan, price := range c.IDV.QuotaSnapshots.PlanPricesUSD {
-		if strings.TrimSpace(plan) == "" || !idvDecimalPattern.MatchString(price) {
-			return fmt.Errorf("invalid IDV quota-snapshots plan-prices-usd entry %q", plan)
+	for plan, price := range c.Analytics.QuotaSnapshots.PlanPricesUSD {
+		if strings.TrimSpace(plan) == "" || !analyticsDecimalPattern.MatchString(price) {
+			return fmt.Errorf("invalid Analytics quota-snapshots plan-prices-usd entry %q", plan)
 		}
 	}
 	if c.LiteLLM.Enabled {

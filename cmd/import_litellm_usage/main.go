@@ -62,7 +62,7 @@ type report struct {
 }
 
 type plan struct {
-	// existing maps IDV keys to whether live export wrote the row.
+	// existing maps Analytics keys to whether live export wrote the row.
 	existing map[string]bool
 	clients  map[string]string
 	cutoff   time.Time
@@ -262,7 +262,7 @@ func reprice(result row, book *usage.PriceBook) (any, error) {
 		return nil, nil
 	}
 
-	record, id, err := usage.IDVPriceRecord(estimate)
+	record, id, err := usage.AnalyticsPriceRecord(estimate)
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +306,7 @@ func repairTotals(snapshot row) (row, error) {
 	}
 	repaired["input_tokens"], repaired["output_tokens"] = input, output
 	for _, name := range []string{"started_at", "completed_at"} {
-		// ClickHouse exports DateTime64(3, 'UTC') without a zone, IDV requires one.
+		// ClickHouse exports DateTime64(3, 'UTC') without a zone, Analytics requires one.
 		at, err := time.Parse("2006-01-02 15:04:05.999", stringValue(snapshot[name]))
 		if err != nil {
 			return nil, err
@@ -473,15 +473,15 @@ func writeNDJSON[T any](path string, rows []T) error {
 func run(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("import_litellm_usage", flag.ContinueOnError)
 	input := flags.String("input", "", "Whitelisted JSONL export from export.sql")
-	output := flags.String("output", "", "New NDJSON file for prepared IDV rows")
-	existingPath := flags.String("existing", "", "JSONEachRow snapshot of the existing IDV attempts")
+	output := flags.String("output", "", "New NDJSON file for prepared Analytics rows")
+	existingPath := flags.String("existing", "", "JSONEachRow snapshot of the existing Analytics attempts")
 	clientMapPath := flags.String("client-map", "", "Optional JSON map from LiteLLM key hashes to canonical client IDs")
 	before := flags.String("proxy-before", "", "UTC cutover timestamp, newer proxy rows are supplied by live export")
 	replace := flags.Bool("replace", false, "Re-send existing rows corrected and repair live rows missing totals, default skips existing rows")
 	catalogPath := flags.String("catalog", "", "Optional LiteLLM price catalog to reprice history with complete usage")
 	pricesOutput := flags.String("prices-output", "", "New NDJSON file for the price records used, required with catalog")
 	apply := flags.Bool("apply", false, "Upload prepared rows after validation, default is dry run")
-	url := flags.String("url", "https://analytics.blamedevs.com", "IDV base URL")
+	url := flags.String("url", "https://analytics.blamedevs.com", "Analytics base URL")
 	dataset := flags.String("dataset", "pawel/llm_usage", "Destination dataset owner/name")
 	pricesDataset := flags.String("prices-dataset", "pawel/llm_prices", "Destination prices dataset owner/name")
 	tokenEnv := flags.String("token-env", "", "Optional environment variable containing a bearer token")
@@ -526,7 +526,7 @@ func run(ctx context.Context, args []string) error {
 			return err
 		}
 		if stringValue(snapshot["source"]) == "" || stringValue(snapshot["execution_id"]) == "" {
-			return errors.New("invalid existing IDV key")
+			return errors.New("invalid existing Analytics key")
 		}
 		p.existing[rowKey(snapshot)] = snapshot["account_id"] != nil
 		if !*replace {

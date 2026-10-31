@@ -72,35 +72,35 @@ func TestLiteLLMExporterConfiguration(t *testing.T) {
 	}
 }
 
-func TestIDVExporterConfiguration(t *testing.T) {
-	cfg := AccountingOutboxConfig{Enabled: true, DataPath: "/data/accounting", IDV: IDVExporterConfig{Enabled: true, URL: "https://analytics.example", Dataset: "pawel/llm_usage"}}
+func TestAnalyticsExporterConfiguration(t *testing.T) {
+	cfg := AccountingOutboxConfig{Enabled: true, DataPath: "/data/accounting", Analytics: AnalyticsExporterConfig{Enabled: true, URL: "https://analytics.example", Dataset: "pawel/llm_usage"}}
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
 
 	for _, dataset := range []string{"", "../usage", "owner/name/extra", "Owner/name", "owner/name?token=secret"} {
 		invalid := cfg
-		invalid.IDV.Dataset = dataset
+		invalid.Analytics.Dataset = dataset
 		if err := invalid.Validate(); err == nil {
 			t.Fatalf("accepted dataset %q", dataset)
 		}
 	}
 	for _, url := range []string{"https://user:credential@analytics.example", "https://analytics.example?token=credential", "https://analytics.example#credential", "file:///credential"} {
 		invalid := cfg
-		invalid.IDV.URL = url
+		invalid.Analytics.URL = url
 		if err := invalid.Validate(); err == nil {
 			t.Fatal("unsafe URL accepted")
 		}
 	}
 
-	for _, dataset := range []string{"../prices", "owner/prices?token=secret", cfg.IDV.Dataset} {
+	for _, dataset := range []string{"../prices", "owner/prices?token=secret", cfg.Analytics.Dataset} {
 		invalid := cfg
-		invalid.IDV.PricesDataset = dataset
+		invalid.Analytics.PricesDataset = dataset
 		if err := invalid.Validate(); err == nil {
 			t.Fatalf("accepted prices dataset %q", dataset)
 		}
 	}
-	cfg.IDV.PricesDataset = "pawel/prices"
+	cfg.Analytics.PricesDataset = "pawel/prices"
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
