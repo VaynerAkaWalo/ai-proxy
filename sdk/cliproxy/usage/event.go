@@ -141,6 +141,10 @@ func NewAccountingEvent(ctx context.Context, record Record) AccountingEvent {
 	return event
 }
 
+// AccountingAccountID returns the account_id exported for an auth ID, so other
+// exports can reference the same upstream account as attempts.
+func AccountingAccountID(authID string) string { return accountingIdentifier("account", authID) }
+
 func accountingIdentifier(kind, value string) string {
 	if value == "" {
 		return ""

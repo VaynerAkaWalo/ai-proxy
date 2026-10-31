@@ -892,6 +892,7 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 	modelKey := canonicalModelKey(result.Model)
 
 	var authSnapshot *Auth
+	quotaObserved := false
 	cooldownStateChanged := false
 	scheduleUnauthorizedRefresh := false
 	now := time.Now()
@@ -1332,7 +1333,7 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 		auth.UpdatedAt = now
 
 		if !result.SkipQuotaObservation {
-			auth.Quota.ObserveResponseHeadersForProvider(result.Provider, responseHeaders, now)
+			quotaObserved = auth.Quota.ObserveResponseHeadersForProvider(result.Provider, responseHeaders, now)
 			if modelState != nil {
 				modelState.Quota.ObserveResponseHeadersForProvider(result.Provider, responseHeaders, now)
 			}
@@ -1347,6 +1348,9 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 	}
 	m.mu.Unlock()
 	releaseMutation()
+	if quotaObserved && authSnapshot != nil {
+		m.notifyQuotaObserved(authSnapshot)
+	}
 	if m.scheduler != nil && authSnapshot != nil {
 		credentialScopedResult := result.CredentialScope || scheduleUnauthorizedRefresh
 		var targetModels []string

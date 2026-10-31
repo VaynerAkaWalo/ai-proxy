@@ -52,6 +52,10 @@ func (s *Service) startAccountingOutbox() error {
 		s.accountingExporter = usage.NewLiteLLMExporter(outbox, cfg.LiteLLM)
 	}
 	s.accountingExporter.Start()
+	if cfg.IDV.Enabled && cfg.IDV.QuotaSnapshots.Enabled && s.coreManager != nil {
+		s.quotaSampler = newQuotaSnapshotSampler(outbox, s.coreManager, cfg.IDV.QuotaSnapshots, s.currentConfig)
+		s.quotaSampler.Start()
+	}
 	return nil
 }
 
@@ -64,6 +68,10 @@ func (s *Service) stopAccountingOutbox(ctx context.Context) {
 	s.accountingDetach()
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(s.accountingShutdownSeconds)*time.Second)
 	defer cancel()
+	if s.quotaSampler != nil {
+		s.quotaSampler.Stop(ctx)
+		s.quotaSampler = nil
+	}
 	if s.accountingExporter != nil {
 		if err := s.accountingExporter.Stop(ctx); err != nil {
 			log.WithError(err).Warn("accounting exporter shutdown incomplete")

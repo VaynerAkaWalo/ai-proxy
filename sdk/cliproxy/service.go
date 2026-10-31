@@ -34,6 +34,7 @@ type Service struct {
 	accountingExporter        accountingExporter
 	accountingOutbox          *usage.Outbox
 	accountingDetach          func()
+	quotaSampler              *quotaSnapshotSampler
 	accountingShutdownSeconds int
 
 	// cfgMu protects concurrent access to the configuration.

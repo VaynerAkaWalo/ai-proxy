@@ -175,6 +175,7 @@ type Manager struct {
 	executors                 map[string]ProviderExecutor
 	selector                  Selector
 	hook                      Hook
+	quotaObserver             atomic.Pointer[QuotaObserver]
 	resultPolicy              atomic.Pointer[resultPolicyHolder]
 	mu                        sync.RWMutex
 	selectorMu                sync.Mutex

@@ -25,9 +25,11 @@ type IDVExporter struct {
 	token    string
 	mu       sync.RWMutex
 	exportMu sync.Mutex
-	status   string
-	cancel   context.CancelFunc
-	done     chan struct{}
+	// quotaRegistered is guarded by exportMu.
+	quotaRegistered bool
+	status          string
+	cancel          context.CancelFunc
+	done            chan struct{}
 }
 
 func NewIDVExporter(outbox *Outbox, cfg config.IDVExporterConfig) *IDVExporter {
@@ -115,7 +117,16 @@ func (e *IDVExporter) ExportOnce(ctx context.Context) error {
 		e.setStatus("credential_unavailable")
 		return nil
 	}
+	if err := e.exportAttempts(ctx); err != nil {
+		return err
+	}
+	if e.cfg.QuotaSnapshots.Enabled {
+		return e.exportQuotaSnapshots(ctx)
+	}
+	return nil
+}
 
+func (e *IDVExporter) exportAttempts(ctx context.Context) error {
 	ids, err := e.deliveries.ReadyIDs(64)
 	if err != nil {
 		return err
