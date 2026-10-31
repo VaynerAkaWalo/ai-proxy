@@ -53,11 +53,11 @@ func TestServiceAccountingCorruptionDoesNotStopInference(t *testing.T) {
 	}
 }
 
-func TestServiceAccountingSelectsIDV(t *testing.T) {
+func TestServiceAccountingSelectsAnalytics(t *testing.T) {
 	s := &Service{cfg: &config.Config{AccountingOutbox: config.AccountingOutboxConfig{
-		Enabled:  true,
-		DataPath: t.TempDir(),
-		IDV:      config.IDVExporterConfig{Enabled: true, URL: "http://localhost:3000", Dataset: "test/usage"},
+		Enabled:   true,
+		DataPath:  t.TempDir(),
+		Analytics: config.AnalyticsExporterConfig{Enabled: true, URL: "http://localhost:3000", Dataset: "test/usage"},
 	}}}
 
 	if err := s.startAccountingOutbox(); err != nil {
@@ -65,17 +65,17 @@ func TestServiceAccountingSelectsIDV(t *testing.T) {
 	}
 	defer s.stopAccountingOutbox(context.Background())
 
-	if _, ok := s.accountingExporter.(*usage.IDVExporter); !ok {
+	if _, ok := s.accountingExporter.(*usage.AnalyticsExporter); !ok {
 		t.Fatalf("wrong exporter: %T", s.accountingExporter)
 	}
 }
 
 func TestServiceAccountingStartsBothExporters(t *testing.T) {
 	s := &Service{cfg: &config.Config{AccountingOutbox: config.AccountingOutboxConfig{
-		Enabled:  true,
-		DataPath: t.TempDir(),
-		IDV:      config.IDVExporterConfig{Enabled: true, URL: "http://localhost:3000", Dataset: "test/usage", TokenEnv: "TEST_MISSING_IDV_TOKEN"},
-		LiteLLM:  config.LiteLLMExporterConfig{Enabled: true, URL: "http://localhost:4000", AdminKeyEnv: "TEST_MISSING_LITELLM_TOKEN"},
+		Enabled:   true,
+		DataPath:  t.TempDir(),
+		Analytics: config.AnalyticsExporterConfig{Enabled: true, URL: "http://localhost:3000", Dataset: "test/usage", TokenEnv: "TEST_MISSING_Analytics_TOKEN"},
+		LiteLLM:   config.LiteLLMExporterConfig{Enabled: true, URL: "http://localhost:4000", AdminKeyEnv: "TEST_MISSING_LITELLM_TOKEN"},
 	}}}
 
 	if err := s.startAccountingOutbox(); err != nil {
@@ -84,7 +84,7 @@ func TestServiceAccountingStartsBothExporters(t *testing.T) {
 	defer s.stopAccountingOutbox(context.Background())
 
 	pair, ok := s.accountingExporter.(*accountingExporterPair)
-	if !ok || pair.litellm == nil || pair.idv == nil {
+	if !ok || pair.litellm == nil || pair.analytics == nil {
 		t.Fatalf("missing exporter: %T", s.accountingExporter)
 	}
 }

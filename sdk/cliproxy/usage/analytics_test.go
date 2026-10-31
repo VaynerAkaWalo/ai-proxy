@@ -15,18 +15,18 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 )
 
-func idvConfig(url string) config.IDVExporterConfig {
-	return config.IDVExporterConfig{Enabled: true, URL: url, Dataset: "pawel/llm_usage"}
+func analyticsConfig(url string) config.AnalyticsExporterConfig {
+	return config.AnalyticsExporterConfig{Enabled: true, URL: url, Dataset: "pawel/llm_usage"}
 }
 
-func TestIDVMappingPreservesAccountingAndOmitsInternalPayloads(t *testing.T) {
+func TestAnalyticsMappingPreservesAccountingAndOmitsInternalPayloads(t *testing.T) {
 	event := exportEvent("mapping")
 	event.RequestedAlias, event.ReportedServiceTier = "alias", "priority"
 	event.TraceID, event.AccountID, event.SessionID = "trace", "account-hash", "session"
 	event.StatusCode = 200
 	event.Estimate.Snapshot = "snapshot-hash"
 
-	row, err := newIDVRow(event)
+	row, err := newAnalyticsRow(event)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,38 +56,38 @@ func TestIDVMappingPreservesAccountingAndOmitsInternalPayloads(t *testing.T) {
 	}
 }
 
-func TestIDVMappingKeepsUnknownUsageAndPartialCosts(t *testing.T) {
+func TestAnalyticsMappingKeepsUnknownUsageAndPartialCosts(t *testing.T) {
 	event := exportEvent("partial")
 	event.Status = "interrupted"
 	event.Tokens = nil
 	event.Estimate.Status = "partial"
-	row, err := newIDVRow(event)
+	row, err := newAnalyticsRow(event)
 	if err != nil || row.Status != "interrupted" || row.InputTokens != nil || row.OutputTokens != nil || row.InputUncachedTokens != nil || row.TotalTokens != nil || row.UsageQuality != "unknown" || row.CostStatus != "partial" || row.CostUSD == nil {
 		t.Fatalf("unknown usage or partial cost lost: %+v, %v", row, err)
 	}
 
 	event.Tokens = &AccountingTokens{Breakdown: NewUnclassifiedTokenBreakdown(42)}
-	row, err = newIDVRow(event)
+	row, err = newAnalyticsRow(event)
 	if err != nil || row.InputTokens != nil || row.OutputTokens != nil || row.InputUncachedTokens != nil || row.ReasoningTokens != nil || row.TotalTokens == nil || *row.TotalTokens != 42 || row.UnclassifiedTokens == nil || *row.UnclassifiedTokens != 42 || row.UsageQuality != "unclassified" {
 		t.Fatalf("unclassified usage fabricated: %+v, %v", row, err)
 	}
 
 	for _, amount := range []string{"NaN", "1e-9", "-1", "1000000000000", "0.1234567890123"} {
 		event.Estimate.Status, event.Estimate.Amount = "priced", &amount
-		row, err = newIDVRow(event)
+		row, err = newAnalyticsRow(event)
 		if err != nil || row.CostUSD != nil || row.CostStatus != "unpriced" {
 			t.Fatalf("invalid USD amount exported: %+v, %v", row, err)
 		}
 	}
 	event.Estimate.Currency = "EUR"
 	event.Estimate.Amount = priceString("1")
-	row, err = newIDVRow(event)
+	row, err = newAnalyticsRow(event)
 	if err != nil || row.CostUSD != nil || row.CostStatus != "unpriced" {
 		t.Fatal("foreign currency exported as USD")
 	}
 }
 
-func TestIDVDeliveryOutcomes(t *testing.T) {
+func TestAnalyticsDeliveryOutcomes(t *testing.T) {
 	cases := []struct {
 		name   string
 		code   int
@@ -112,7 +112,7 @@ func TestIDVDeliveryOutcomes(t *testing.T) {
 				if r.URL.Path != "/api/datasets/pawel/llm_usage/rows" || r.Header.Get("Content-Type") != "application/x-ndjson" || r.Header.Get("Authorization") != "Bearer test-token" {
 					t.Error("invalid ingestion request")
 				}
-				var row idvRow
+				var row analyticsRow
 				if err := json.NewDecoder(r.Body).Decode(&row); err != nil || row.ExecutionID != "one" {
 					t.Error("invalid row")
 				}
@@ -120,14 +120,14 @@ func TestIDVDeliveryOutcomes(t *testing.T) {
 				_, _ = io.WriteString(w, tc.body)
 			}))
 			defer server.Close()
-			t.Setenv("TEST_IDV_TOKEN", "test-token")
-			cfg := idvConfig(server.URL)
-			cfg.TokenEnv = "TEST_IDV_TOKEN"
+			t.Setenv("TEST_Analytics_TOKEN", "test-token")
+			cfg := analyticsConfig(server.URL)
+			cfg.TokenEnv = "TEST_Analytics_TOKEN"
 			o := openTestOutbox(t, config.AccountingOutboxConfig{})
 			if err := o.Insert(exportEvent("one")); err != nil {
 				t.Fatal(err)
 			}
-			e := NewIDVExporter(o, cfg)
+			e := NewAnalyticsExporter(o, cfg)
 
 			if err := e.ExportOnce(context.Background()); err != nil {
 				t.Fatal(err)
@@ -146,12 +146,12 @@ func TestIDVDeliveryOutcomes(t *testing.T) {
 	}
 }
 
-func TestIDVBatchRetainsFailedUnpricedAndUnknownAttempts(t *testing.T) {
-	var rows []idvRow
+func TestAnalyticsBatchRetainsFailedUnpricedAndUnknownAttempts(t *testing.T) {
+	var rows []analyticsRow
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
 		for {
-			var row idvRow
+			var row analyticsRow
 			err := decoder.Decode(&row)
 			if err == io.EOF {
 				break
@@ -173,7 +173,7 @@ func TestIDVBatchRetainsFailedUnpricedAndUnknownAttempts(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	e := NewIDVExporter(o, idvConfig(server.URL))
+	e := NewAnalyticsExporter(o, analyticsConfig(server.URL))
 
 	if err := e.ExportOnce(context.Background()); err != nil {
 		t.Fatal(err)
@@ -191,12 +191,12 @@ func TestIDVBatchRetainsFailedUnpricedAndUnknownAttempts(t *testing.T) {
 	}
 }
 
-func TestIDVCancellationAndReplayAfterLostResponse(t *testing.T) {
+func TestAnalyticsCancellationAndReplayAfterLostResponse(t *testing.T) {
 	entered := make(chan struct{})
 	first := true
 	keys := map[string]int{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var row idvRow
+		var row analyticsRow
 		if err := json.NewDecoder(r.Body).Decode(&row); err != nil {
 			t.Error(err)
 			return
@@ -217,7 +217,7 @@ func TestIDVCancellationAndReplayAfterLostResponse(t *testing.T) {
 	if err := o.Insert(exportEvent("lost-response")); err != nil {
 		t.Fatal(err)
 	}
-	e := NewIDVExporter(o, idvConfig(server.URL))
+	e := NewAnalyticsExporter(o, analyticsConfig(server.URL))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- e.ExportOnce(ctx) }()
@@ -239,8 +239,8 @@ func TestIDVCancellationAndReplayAfterLostResponse(t *testing.T) {
 	}
 }
 
-func TestIDVRequeuesClaimsAfterRestart(t *testing.T) {
-	cfg := config.AccountingOutboxConfig{Enabled: true, DataPath: t.TempDir(), IDV: idvConfig("http://localhost:3000")}
+func TestAnalyticsRequeuesClaimsAfterRestart(t *testing.T) {
+	cfg := config.AccountingOutboxConfig{Enabled: true, DataPath: t.TempDir(), Analytics: analyticsConfig("http://localhost:3000")}
 	o := openTestOutbox(t, cfg)
 	if err := o.Insert(exportEvent("crashed")); err != nil {
 		t.Fatal(err)
@@ -265,13 +265,13 @@ func TestIDVRequeuesClaimsAfterRestart(t *testing.T) {
 	}
 }
 
-func TestIDVBatchLimit(t *testing.T) {
+func TestAnalyticsBatchLimit(t *testing.T) {
 	var batches []int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
 		count := 0
 		for {
-			var row idvRow
+			var row analyticsRow
 			err := decoder.Decode(&row)
 			if err == io.EOF {
 				break
@@ -292,7 +292,7 @@ func TestIDVBatchLimit(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	e := NewIDVExporter(o, idvConfig(server.URL))
+	e := NewAnalyticsExporter(o, analyticsConfig(server.URL))
 
 	for range 3 {
 		if err := e.ExportOnce(context.Background()); err != nil {
@@ -304,15 +304,15 @@ func TestIDVBatchLimit(t *testing.T) {
 	}
 }
 
-func TestIDVMissingConfiguredTokenDoesNotClaimEvents(t *testing.T) {
-	t.Setenv("TEST_IDV_TOKEN", "")
-	cfg := idvConfig("http://localhost:3000")
-	cfg.TokenEnv = "TEST_IDV_TOKEN"
+func TestAnalyticsMissingConfiguredTokenDoesNotClaimEvents(t *testing.T) {
+	t.Setenv("TEST_Analytics_TOKEN", "")
+	cfg := analyticsConfig("http://localhost:3000")
+	cfg.TokenEnv = "TEST_Analytics_TOKEN"
 	o := openTestOutbox(t, config.AccountingOutboxConfig{})
 	if err := o.Insert(exportEvent("pending")); err != nil {
 		t.Fatal(err)
 	}
-	e := NewIDVExporter(o, cfg)
+	e := NewAnalyticsExporter(o, cfg)
 
 	if err := e.ExportOnce(context.Background()); err != nil {
 		t.Fatal(err)
@@ -325,7 +325,7 @@ func TestIDVMissingConfiguredTokenDoesNotClaimEvents(t *testing.T) {
 	}
 }
 
-func TestIDVRefusesRedirects(t *testing.T) {
+func TestAnalyticsRefusesRedirects(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Error("ingestion followed a redirect")
 	}))
@@ -338,7 +338,7 @@ func TestIDVRefusesRedirects(t *testing.T) {
 	if err := o.Insert(exportEvent("redirect")); err != nil {
 		t.Fatal(err)
 	}
-	e := NewIDVExporter(o, idvConfig(server.URL))
+	e := NewAnalyticsExporter(o, analyticsConfig(server.URL))
 
 	if err := e.ExportOnce(context.Background()); err != nil {
 		t.Fatal(err)
@@ -348,11 +348,11 @@ func TestIDVRefusesRedirects(t *testing.T) {
 	}
 }
 
-func TestIDVParentTotalsKeepKnownZeros(t *testing.T) {
+func TestAnalyticsParentTotalsKeepKnownZeros(t *testing.T) {
 	event := exportEvent("zero-parents")
 	event.Tokens = &AccountingTokens{Breakdown: NewSubsetTokenBreakdown(0, 0, 0, 0, 0, 0)}
 
-	row, err := newIDVRow(event)
+	row, err := newAnalyticsRow(event)
 
 	if err != nil || row.InputTokens == nil || *row.InputTokens != 0 || row.OutputTokens == nil || *row.OutputTokens != 0 {
 		t.Fatalf("lost known zero parent totals: %+v %v", row, err)

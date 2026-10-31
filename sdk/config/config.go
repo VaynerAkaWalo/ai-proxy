@@ -12,7 +12,7 @@ type Config = internalconfig.Config
 
 type AccountingOutboxConfig = internalconfig.AccountingOutboxConfig
 type LiteLLMExporterConfig = internalconfig.LiteLLMExporterConfig
-type IDVExporterConfig = internalconfig.IDVExporterConfig
+type AnalyticsExporterConfig = internalconfig.AnalyticsExporterConfig
 type LiteLLMIdentity = internalconfig.LiteLLMIdentity
 type PricingConfig = internalconfig.PricingConfig
 type PriceRate = internalconfig.PriceRate

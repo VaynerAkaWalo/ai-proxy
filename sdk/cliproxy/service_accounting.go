@@ -41,19 +41,19 @@ func (s *Service) startAccountingOutbox() error {
 		return err
 	}
 	s.accountingOutbox, s.accountingDetach, s.accountingShutdownSeconds = outbox, detach, cfg.ShutdownSeconds
-	if cfg.IDV.Enabled && cfg.LiteLLM.Enabled {
+	if cfg.Analytics.Enabled && cfg.LiteLLM.Enabled {
 		s.accountingExporter = &accountingExporterPair{
-			litellm: usage.NewLiteLLMExporter(outbox, cfg.LiteLLM),
-			idv:     usage.NewIDVExporter(outbox, cfg.IDV),
+			litellm:   usage.NewLiteLLMExporter(outbox, cfg.LiteLLM),
+			analytics: usage.NewAnalyticsExporter(outbox, cfg.Analytics),
 		}
-	} else if cfg.IDV.Enabled {
-		s.accountingExporter = usage.NewIDVExporter(outbox, cfg.IDV)
+	} else if cfg.Analytics.Enabled {
+		s.accountingExporter = usage.NewAnalyticsExporter(outbox, cfg.Analytics)
 	} else {
 		s.accountingExporter = usage.NewLiteLLMExporter(outbox, cfg.LiteLLM)
 	}
 	s.accountingExporter.Start()
-	if cfg.IDV.Enabled && cfg.IDV.QuotaSnapshots.Enabled && s.coreManager != nil {
-		s.quotaSampler = newQuotaSnapshotSampler(outbox, s.coreManager, cfg.IDV.QuotaSnapshots, s.currentConfig)
+	if cfg.Analytics.Enabled && cfg.Analytics.QuotaSnapshots.Enabled && s.coreManager != nil {
+		s.quotaSampler = newQuotaSnapshotSampler(outbox, s.coreManager, cfg.Analytics.QuotaSnapshots, s.currentConfig)
 		s.quotaSampler.Start()
 	}
 	return nil
@@ -105,18 +105,18 @@ func (s *Service) AccountingExporterStatus() string {
 }
 
 type accountingExporterPair struct {
-	litellm accountingExporter
-	idv     accountingExporter
+	litellm   accountingExporter
+	analytics accountingExporter
 }
 
 func (p *accountingExporterPair) Start() {
 	p.litellm.Start()
-	p.idv.Start()
+	p.analytics.Start()
 }
 
 func (p *accountingExporterPair) Stop(ctx context.Context) error {
 	results := make(chan error, 2)
-	for _, exporter := range []accountingExporter{p.litellm, p.idv} {
+	for _, exporter := range []accountingExporter{p.litellm, p.analytics} {
 		go func() { results <- exporter.Stop(ctx) }()
 	}
 
@@ -124,5 +124,5 @@ func (p *accountingExporterPair) Stop(ctx context.Context) error {
 }
 
 func (p *accountingExporterPair) Status() string {
-	return fmt.Sprintf("litellm:%s,idv:%s", p.litellm.Status(), p.idv.Status())
+	return fmt.Sprintf("litellm:%s,analytics:%s", p.litellm.Status(), p.analytics.Status())
 }

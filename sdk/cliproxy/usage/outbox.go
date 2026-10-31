@@ -98,8 +98,8 @@ func OpenOutbox(cfg config.AccountingOutboxConfig) (*Outbox, error) {
 			if err := o.initializeDestinations(tx); err != nil {
 				return err
 			}
-			if cfg.IDV.Enabled {
-				return o.requeueAmbiguousIDV(tx)
+			if cfg.Analytics.Enabled {
+				return o.requeueAmbiguousAnalytics(tx)
 			}
 			return nil
 		})
@@ -119,9 +119,9 @@ func OpenOutbox(cfg config.AccountingOutboxConfig) (*Outbox, error) {
 	return o, nil
 }
 
-func (o *Outbox) requeueAmbiguousIDV(tx *bolt.Tx) error {
-	// Only the IDV receiver replaces duplicate attempts without incrementing external budget counters.
-	bucket := o.deliveriesFor("idv").bucket
+func (o *Outbox) requeueAmbiguousAnalytics(tx *bolt.Tx) error {
+	// Only the Analytics receiver replaces duplicate attempts without incrementing external budget counters.
+	bucket := o.deliveriesFor("analytics").bucket
 	cursor := tx.Bucket(bucket).Cursor()
 	for key, raw := cursor.First(); key != nil; key, raw = cursor.Next() {
 		var delivery Delivery
@@ -302,19 +302,19 @@ func (o *Outbox) repriceUnpricedEvent(id string) (AccountingEvent, error) {
 			return nil
 		}
 
-		var idvDelivery *Delivery
-		idvBucket := o.deliveriesFor("idv").bucket
+		var analyticsDelivery *Delivery
+		analyticsBucket := o.deliveriesFor("analytics").bucket
 		if o.secondaryDeliveries {
-			if raw := tx.Bucket(idvBucket).Get(key); raw != nil {
+			if raw := tx.Bucket(analyticsBucket).Get(key); raw != nil {
 				var delivery Delivery
 				if err := json.Unmarshal(raw, &delivery); err != nil {
 					return err
 				}
-				// An IDV request in flight must finish before its payload can change.
+				// An Analytics request in flight must finish before its payload can change.
 				if delivery.State == DeliveryAmbiguous {
 					return nil
 				}
-				idvDelivery = &delivery
+				analyticsDelivery = &delivery
 			}
 		}
 
@@ -333,9 +333,9 @@ func (o *Outbox) repriceUnpricedEvent(id string) (AccountingEvent, error) {
 		if err := o.checkDisk(tx); err != nil {
 			return err
 		}
-		if idvDelivery != nil {
-			idvDelivery.State, idvDelivery.UpdatedAt, idvDelivery.NextAttemptAt = DeliveryPending, o.now(), time.Time{}
-			if err := putDelivery(tx.Bucket(idvBucket), key, *idvDelivery); err != nil {
+		if analyticsDelivery != nil {
+			analyticsDelivery.State, analyticsDelivery.UpdatedAt, analyticsDelivery.NextAttemptAt = DeliveryPending, o.now(), time.Time{}
+			if err := putDelivery(tx.Bucket(analyticsBucket), key, *analyticsDelivery); err != nil {
 				return err
 			}
 		}

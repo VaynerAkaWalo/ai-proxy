@@ -38,7 +38,7 @@ func (s QuotaSnapshot) key() []byte {
 }
 
 func (s QuotaSnapshot) valid() bool {
-	return s.Source != "" && !s.ObservedAt.IsZero() && s.Provider != "" && s.AccountID != "" && s.Window != "" && idvAmountPattern.MatchString(s.Utilization)
+	return s.Source != "" && !s.ObservedAt.IsZero() && s.Provider != "" && s.AccountID != "" && s.Window != "" && analyticsAmountPattern.MatchString(s.Utilization)
 }
 
 // EnqueueQuotaSnapshots stores snapshots durably, refusing rows when full rather

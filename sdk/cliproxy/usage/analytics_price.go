@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-type idvPriceRow struct {
+type analyticsPriceRow struct {
 	PriceID              string  `json:"price_id,omitempty"`
 	Source               *string `json:"source"`
 	Provider             string  `json:"provider"`
@@ -25,7 +25,7 @@ type idvPriceRow struct {
 	Rounding             string  `json:"rounding"`
 }
 
-func idvRatePerMillion(rate *string) (*string, error) {
+func analyticsRatePerMillion(rate *string) (*string, error) {
 	if rate == nil {
 		return nil, nil
 	}
@@ -37,7 +37,7 @@ func idvRatePerMillion(rate *string) (*string, error) {
 	value.Mul(value, big.NewRat(1000000, 1))
 	decimal := value.FloatString(12)
 	exact, ok := new(big.Rat).SetString(decimal)
-	if !ok || exact.Cmp(value) != 0 || !idvAmountPattern.MatchString(decimal) {
+	if !ok || exact.Cmp(value) != 0 || !analyticsAmountPattern.MatchString(decimal) {
 		return nil, fmt.Errorf("price rate cannot be represented as Decimal(24,12) per million tokens")
 	}
 
@@ -46,7 +46,7 @@ func idvRatePerMillion(rate *string) (*string, error) {
 	return &decimal, nil
 }
 
-func newIDVPriceRow(estimate *CostEstimate) (*idvPriceRow, error) {
+func newAnalyticsPriceRow(estimate *CostEstimate) (*analyticsPriceRow, error) {
 	if estimate == nil || estimate.Rates == nil || estimate.Currency != "USD" {
 		return nil, nil
 	}
@@ -55,7 +55,7 @@ func newIDVPriceRow(estimate *CostEstimate) (*idvPriceRow, error) {
 		return nil, fmt.Errorf("invalid selected price")
 	}
 
-	row := &idvPriceRow{
+	row := &analyticsPriceRow{
 		Source: nullableString(estimate.Source), Provider: rate.Provider, Model: rate.Model,
 		ServiceTier: nullableString(rate.Tier), MinContextTokens: rate.MinContext,
 		Rounding: estimate.Rounding,
@@ -77,7 +77,7 @@ func newIDVPriceRow(estimate *CostEstimate) (*idvPriceRow, error) {
 		{rate.Output, &row.OutputUSDPerMTok},
 		{reasoning, &row.ReasoningUSDPerMTok},
 	} {
-		value, err := idvRatePerMillion(bucket.rate)
+		value, err := analyticsRatePerMillion(bucket.rate)
 		if err != nil {
 			return nil, err
 		}

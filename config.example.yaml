@@ -1169,9 +1169,9 @@ observability:
     max-events: 100000
     retention-hours: 168
     shutdown-seconds: 5
-    idv:
+    analytics:
       enabled: false # Can run alongside LiteLLM with independent delivery states.
-      url: "" # IDV base URL.
+      url: "" # Analytics base URL.
       dataset: "" # owner/name implementing llm_usage@0.1/attempts
       prices-dataset: "" # Optional owner/name implementing llm_usage@0.1/prices.
       token-env: "" # Optional bearer token environment variable for the receiving gateway.
