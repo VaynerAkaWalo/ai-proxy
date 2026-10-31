@@ -1175,6 +1175,7 @@ observability:
       dataset: "" # owner/name implementing llm_usage@0.1/attempts
       prices-dataset: "" # Optional owner/name implementing llm_usage@0.1/prices.
       token-env: "" # Optional bearer token environment variable for the receiving gateway.
+      export-project: false # Enable only once the dataset has the nullable attempts.project column.
       # Optional usage-limit snapshots exported to <owner>/llm_quota_snapshots, implementing
       # llm_usage@0.1/quota_snapshots. Enable only after that analytics model is deployed.
       quota-snapshots:
@@ -1182,6 +1183,12 @@ observability:
         interval-seconds: 300 # Minimum gap between unchanged snapshots of one account window, and scan period.
         # Monthly plan price in USD, keyed by plan or "provider:plan" (e.g. "claude:pro", "xai:supergrok"), case-insensitive. Unlisted plans export null.
         plan-prices-usd: {}
+    # Project tagging: the X-Project request header wins, otherwise the project is derived
+    # from the client's working directory (repo name, T3/Claude/Codex/git worktrees resolved
+    # to their repo). Map working directory prefixes to override that, for example:
+    # project-paths:
+    #   "/home/me/work/monorepo": "monorepo"
+    project-paths: {}
     litellm:
       enabled: false
       url: "" # Stock LiteLLM base URL, use HTTPS outside a trusted local network. Only successful requests are exported.

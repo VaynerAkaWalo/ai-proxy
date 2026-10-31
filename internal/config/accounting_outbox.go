@@ -57,6 +57,8 @@ type IDVExporterConfig struct {
 	Dataset       string `yaml:"dataset" json:"dataset"`
 	PricesDataset string `yaml:"prices-dataset" json:"prices-dataset"`
 	TokenEnv      string `yaml:"token-env" json:"token-env"`
+	// ExportProject sends the project column, which receivers without it reject.
+	ExportProject bool `yaml:"export-project" json:"export-project"`
 	// QuotaSnapshots exports subscription usage-limit snapshots to the
 	// llm_usage@0.1/quota_snapshots dataset next to Dataset. Off by default.
 	QuotaSnapshots QuotaSnapshotsConfig `yaml:"quota-snapshots" json:"quota-snapshots"`
@@ -94,6 +96,8 @@ type AccountingOutboxConfig struct {
 	MaxEvents       int                   `yaml:"max-events" json:"max-events"`
 	RetentionHours  int                   `yaml:"retention-hours" json:"retention-hours"`
 	ShutdownSeconds int                   `yaml:"shutdown-seconds" json:"shutdown-seconds"`
+	// ProjectPaths maps a client working directory prefix to its project name.
+	ProjectPaths map[string]string `yaml:"project-paths" json:"project-paths"`
 }
 
 func (c AccountingOutboxConfig) Defaults() AccountingOutboxConfig {
