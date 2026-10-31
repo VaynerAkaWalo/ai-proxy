@@ -1,6 +1,5 @@
-// Package quotaprobe reads subscription plan, usage windows and manual reset
-// counts from the same upstream endpoints the management panel's quota page
-// uses, so exports can report what the panel shows.
+// Package quotaprobe reads plan, usage windows and manual resets from the
+// endpoints the management panel uses.
 package quotaprobe
 
 import (
@@ -34,8 +33,7 @@ const (
 	xaiClientVersion    = "1.0.46"
 )
 
-// Result is what one probe learned about a credential. Unknown values are
-// zero or nil.
+// Result is what one probe learned about a credential.
 type Result struct {
 	ObservedAt       time.Time
 	Plan             string
@@ -75,18 +73,15 @@ func Probe(ctx context.Context, cfg *config.Config, auth *coreauth.Auth) (*Resul
 	return nil, fmt.Errorf("quota probe: unsupported provider")
 }
 
-// ownHosts lists the hosts a credential's base_url may point to for its token
-// to belong to the probed service.
+// ownHosts are the base_url hosts a credential's token may be sent to.
 var ownHosts = map[string][]string{
 	"claude": {"api.anthropic.com"},
 	"codex":  {"chatgpt.com", "chat.openai.com"},
 	"xai":    {"api.x.ai", "cli-chat-proxy.grok.com"},
 }
 
-// accessToken returns the credential's OAuth access token, or "" when the
-// credential is not a subscription OAuth credential of the probed service.
-// Configured API keys and credentials with a third-party base_url are skipped so
-// their secrets are never sent to the provider's hard-coded endpoints.
+// accessToken returns the subscription OAuth token, or "" for API keys and
+// third-party base_urls so their secrets never reach the provider's endpoints.
 func accessToken(auth *coreauth.Auth) string {
 	provider := strings.ToLower(strings.TrimSpace(auth.Provider))
 	if auth.Attributes != nil && strings.TrimSpace(auth.Attributes["api_key"]) != "" {
@@ -265,7 +260,6 @@ func getJSON(ctx context.Context, client *http.Client, url string, headers map[s
 	return body, nil
 }
 
-// number reads a JSON number or numeric string.
 func number(value gjson.Result) (float64, bool) {
 	switch value.Type {
 	case gjson.Number:

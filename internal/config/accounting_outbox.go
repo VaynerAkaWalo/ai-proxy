@@ -59,16 +59,14 @@ type IDVExporterConfig struct {
 	TokenEnv      string `yaml:"token-env" json:"token-env"`
 	// ExportProject sends the project column, which receivers without it reject.
 	ExportProject bool `yaml:"export-project" json:"export-project"`
-	// QuotaSnapshots exports subscription usage-limit snapshots to the
-	// llm_usage@0.1/quota_snapshots dataset next to Dataset. Off by default.
+	// QuotaSnapshots exports usage-limit snapshots next to Dataset.
 	QuotaSnapshots QuotaSnapshotsConfig `yaml:"quota-snapshots" json:"quota-snapshots"`
 }
 
 // QuotaSnapshotsConfig controls usage-limit snapshot export.
 type QuotaSnapshotsConfig struct {
 	Enabled bool `yaml:"enabled" json:"enabled"`
-	// IntervalSeconds is the minimum time between snapshots of one account window
-	// when utilization and reset time are unchanged, and the periodic scan period.
+	// IntervalSeconds is the minimum gap between unchanged snapshots and the scan period.
 	IntervalSeconds int `yaml:"interval-seconds" json:"interval-seconds"`
 	// PlanPricesUSD maps a plan (or "provider:plan") to its monthly price in USD.
 	PlanPricesUSD map[string]string `yaml:"plan-prices-usd" json:"plan-prices-usd"`

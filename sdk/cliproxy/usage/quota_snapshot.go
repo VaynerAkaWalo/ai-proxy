@@ -14,9 +14,8 @@ const MaxQuotaSnapshots = 20000
 
 var quotaSnapshotsBucket = []byte("quota-snapshots-v1")
 
-// QuotaSnapshot is one llm_usage@0.1/quota_snapshots row. Nullable fields are
-// omitted when unknown because the receiver rejects unknown keys but accepts
-// missing nullable ones.
+// QuotaSnapshot is one quota_snapshots row. Unknown nullable fields are omitted,
+// since the receiver rejects unknown keys but accepts missing nullable ones.
 type QuotaSnapshot struct {
 	Source           string     `json:"source"`
 	ObservedAt       time.Time  `json:"observed_at"`
@@ -42,9 +41,8 @@ func (s QuotaSnapshot) valid() bool {
 	return s.Source != "" && !s.ObservedAt.IsZero() && s.Provider != "" && s.AccountID != "" && s.Window != "" && idvAmountPattern.MatchString(s.Utilization)
 }
 
-// EnqueueQuotaSnapshots durably stores snapshots for delivery. It returns only
-// after the transaction is committed, and refuses rows rather than evicting
-// undelivered ones when the store is full. Re-enqueuing a key replaces the row.
+// EnqueueQuotaSnapshots stores snapshots durably, refusing rows when full rather
+// than evicting undelivered ones. Re-enqueuing a key replaces the row.
 func (o *Outbox) EnqueueQuotaSnapshots(rows []QuotaSnapshot) error {
 	if o == nil || o.unavailable || o.db == nil {
 		return errors.New("accounting store unavailable")

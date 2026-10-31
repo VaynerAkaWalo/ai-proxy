@@ -13,12 +13,10 @@ const (
 	QuotaWindowWeekly = "weekly"
 )
 
-// QuotaObserver is notified with a credential snapshot after a response updated
-// its passive quota observation.
+// QuotaObserver is called after a response updates a credential's quota observation.
 type QuotaObserver func(*Auth)
 
-// SetQuotaObserver registers the callback invoked after a response's quota
-// headers update a credential. Passing nil removes it. The callback runs on the
+// SetQuotaObserver registers the quota callback; nil removes it. It runs on the
 // result-reporting goroutine and must not block.
 func (m *Manager) SetQuotaObserver(observer QuotaObserver) {
 	if m == nil {
@@ -37,10 +35,8 @@ func (m *Manager) notifyQuotaObserved(auth *Auth) {
 	}
 }
 
-// QuotaWindowUsage is one subscription usage window decoded from the passive
-// quota snapshot of a credential.
+// QuotaWindowUsage is one usage window from a credential's quota observation.
 type QuotaWindowUsage struct {
-	// Window is QuotaWindow5h or QuotaWindowWeekly.
 	Window string
 	// Utilization is the used fraction in [0, 1].
 	Utilization float64
@@ -48,9 +44,8 @@ type QuotaWindowUsage struct {
 	ResetsAt time.Time
 }
 
-// QuotaWindows decodes the 5h and weekly usage windows from the credential's
-// existing quota observation (Anthropic unified headers, Codex primary and
-// secondary windows, Devin weekly quota). It never calls upstream.
+// QuotaWindows decodes the 5h and weekly windows from the existing observation
+// without calling upstream.
 func (a *Auth) QuotaWindows() []QuotaWindowUsage {
 	if a == nil || len(a.Quota.Signals) == 0 {
 		return nil
@@ -111,8 +106,7 @@ func (a *Auth) QuotaWindows() []QuotaWindowUsage {
 	return nil
 }
 
-// QuotaPlan returns the subscription plan the proxy knows for the credential,
-// or an empty string when none is recorded.
+// QuotaPlan returns the credential's known plan, or "".
 func (a *Auth) QuotaPlan() string {
 	if a == nil {
 		return ""
@@ -137,8 +131,7 @@ func (a *Auth) QuotaPlan() string {
 	return ""
 }
 
-// DisplayQuotaPlan capitalizes plan names the upstream reports in lower case
-// ("pro" becomes "Pro"). Other spellings are kept as reported.
+// DisplayQuotaPlan capitalizes lower case plan names ("pro" becomes "Pro").
 func DisplayQuotaPlan(plan string) string {
 	plan = strings.TrimSpace(plan)
 	if plan == "" || plan != strings.ToLower(plan) || strings.ContainsAny(plan, " _-:") {
