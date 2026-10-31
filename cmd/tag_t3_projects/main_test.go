@@ -18,11 +18,12 @@ func writeFile(t *testing.T, name, content string) string {
 }
 
 const threads = `[
-  {"native_id":"aaaa","provider":"claudeAgent","cwd":"/home/agent/.t3/worktrees/ai-proxy/t3-1","runs":"[[\"2026-10-10T10:00:00.000Z\",\"2026-10-10T11:00:00.000Z\"]]"},
-  {"native_id":"bbbb","provider":"codex","cwd":"/Users/me/code/analytics","runs":"[[\"2026-10-10T10:30:00.000Z\",\"2026-10-10T12:00:00.000Z\"]]"},
-  {"native_id":"cccc","provider":"claudeAgent","cwd":"/home/agent/.t3/scratch/chat-1","runs":"[[\"2026-10-10T12:00:00.000Z\",\"2026-10-10T13:00:00.000Z\"]]"},
-  {"native_id":"dddd","provider":"claudeAgent","cwd":"/home/agent/code/rules","runs":"[[\"2026-10-10T10:50:00.000Z\",\"2026-10-10T10:55:00.000Z\"]]"},
-  {"native_id":"eeee","provider":"codex","cwd":"/home/agent/code/vantage","runs":"[]"}
+  {"native_id":"aaaa","cwd":"/home/agent/.t3/worktrees/ai-proxy/t3-1","runs":"[[\"2026-10-10T10:00:00.000Z\",\"2026-10-10T11:00:00.000Z\",\"claude-opus-5-5\"]]"},
+  {"native_id":"bbbb","cwd":"/Users/me/code/analytics","runs":"[[\"2026-10-10T10:30:00.000Z\",\"2026-10-10T12:00:00.000Z\",\"gpt-6.1-sol\"]]"},
+  {"native_id":"cccc","cwd":"/home/agent/.t3/scratch/chat-1","runs":"[[\"2026-10-10T12:00:00.000Z\",\"2026-10-10T13:00:00.000Z\",\"claude-opus-5-5\"]]"},
+  {"native_id":"dddd","cwd":"/home/agent/code/rules","runs":"[[\"2026-10-10T10:50:00.000Z\",\"2026-10-10T10:55:00.000Z\",\"claude-haiku-5-5\"]]"},
+  {"native_id":"gggg","cwd":"/home/agent/code/thinky","runs":"[[\"2026-10-10T10:00:00.000Z\",\"2026-10-10T11:00:00.000Z\",\"grok-4.7\"]]"},
+  {"native_id":"eeee","cwd":"/home/agent/code/vantage","runs":"[]"}
 ]`
 
 func attempt(id, session, provider, started, completed, project string) string {
@@ -56,6 +57,7 @@ func TestTagAttributesAttemptsToT3Chats(t *testing.T) {
 		attempt("past-run-end", "", "claude", "2026-10-10 10:59:00.000", "2026-10-10 11:00:01.000", ""),
 		attempt("scratch", "", "claude", "2026-10-10 12:10:00.000", "2026-10-10 12:11:00.000", ""),
 		attempt("scratch-session", "claude:cccc", "claude", "2026-10-10 12:10:00.000", "2026-10-10 12:11:00.000", ""),
+		attempt("grok-under-claude-driver", "", "xai", "2026-10-10 10:51:00.000", "2026-10-10 10:52:00.000", ""),
 		attempt("live", "", "claude", "2026-10-10 10:10:00.000", "2026-10-10 10:10:01.000", "thinky"),
 	}, "\n")
 
@@ -71,6 +73,7 @@ func TestTagAttributesAttemptsToT3Chats(t *testing.T) {
 	want := map[string]any{
 		"subagent": "ai-proxy", "litellm-session": "analytics", "codex-subagent": "vantage",
 		"by-time": "ai-proxy", "other-provider-overlaps": "analytics",
+		"grok-under-claude-driver": "thinky",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("tagged %v, want %v", got, want)
@@ -82,7 +85,7 @@ func TestTagAttributesAttemptsToT3Chats(t *testing.T) {
 	}
 
 	counts := map[string]int{
-		"session": 3, "time": 2, "unmatched_session": 1, "ambiguous_time": 1, "unmatched_time": 1,
+		"session": 3, "time": 3, "unmatched_session": 1, "ambiguous_time": 1, "unmatched_time": 1,
 		"time_chat_without_project": 1, "session_chat_without_project": 1, "already_tagged": 1,
 	}
 	for name, count := range counts {

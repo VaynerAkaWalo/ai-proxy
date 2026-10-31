@@ -24,7 +24,6 @@ import (
 
 type t3Thread struct {
 	NativeID string `json:"native_id"`
-	Provider string `json:"provider"`
 	Cwd      string `json:"cwd"`
 	Runs     string `json:"runs"`
 }
@@ -50,8 +49,19 @@ type outcome struct {
 
 type report map[string]*outcome
 
-// T3 drivers mapped to the provider ai-proxy records for their upstream.
-var proxyProviders = map[string]string{"claudeAgent": "claude", "codex": "codex", "grok": "xai"}
+// T3 drivers can run another vendor's models, so the upstream ai-proxy records follows the model.
+var modelProviders = []struct{ prefix, provider string }{
+	{"claude-", "claude"}, {"gpt-", "codex"}, {"grok", "xai"}, {"custom-grok", "xai"},
+}
+
+func proxyProvider(model string) string {
+	for _, m := range modelProviders {
+		if strings.HasPrefix(model, m.prefix) {
+			return m.provider
+		}
+	}
+	return ""
+}
 
 var sessionPrefix = regexp.MustCompile(`^[a-z]+:`)
 var integerColumns = []string{
@@ -77,16 +87,21 @@ func loadHistory(paths []string) (history, error) {
 			project := handlers.ProjectFromCwd(thread.Cwd)
 			h.sessions[thread.NativeID] = project
 
-			provider, ok := proxyProviders[thread.Provider]
-			if !ok || thread.Runs == "" {
-				continue
-			}
-			var runs [][2]time.Time
+			var runs [][3]string
 			if err := json.Unmarshal([]byte(thread.Runs), &runs); err != nil {
 				return h, fmt.Errorf("%s: runs of %s: %w", path, thread.NativeID, err)
 			}
 			for _, run := range runs {
-				h.windows = append(h.windows, window{provider: provider, start: run[0], end: run[1], project: project})
+				provider := proxyProvider(run[2])
+				if provider == "" {
+					continue
+				}
+				start, errStart := time.Parse(time.RFC3339Nano, run[0])
+				end, errEnd := time.Parse(time.RFC3339Nano, run[1])
+				if err := errors.Join(errStart, errEnd); err != nil {
+					return h, fmt.Errorf("%s: run of %s: %w", path, thread.NativeID, err)
+				}
+				h.windows = append(h.windows, window{provider: provider, start: start, end: end, project: project})
 			}
 		}
 	}
