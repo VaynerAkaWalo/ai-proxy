@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 )
 
 type PriceRate struct {
@@ -56,8 +57,30 @@ type IDVExporterConfig struct {
 	Dataset       string `yaml:"dataset" json:"dataset"`
 	PricesDataset string `yaml:"prices-dataset" json:"prices-dataset"`
 	TokenEnv      string `yaml:"token-env" json:"token-env"`
+	// QuotaSnapshots exports subscription usage-limit snapshots to the
+	// llm_usage@0.1/quota_snapshots dataset next to Dataset. Off by default.
+	QuotaSnapshots QuotaSnapshotsConfig `yaml:"quota-snapshots" json:"quota-snapshots"`
 }
 
+// QuotaSnapshotsConfig controls usage-limit snapshot export.
+type QuotaSnapshotsConfig struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// IntervalSeconds is the minimum time between snapshots of one account window
+	// when utilization and reset time are unchanged, and the periodic scan period.
+	IntervalSeconds int `yaml:"interval-seconds" json:"interval-seconds"`
+	// PlanPricesUSD maps a plan (or "provider:plan") to its monthly price in USD.
+	PlanPricesUSD map[string]string `yaml:"plan-prices-usd" json:"plan-prices-usd"`
+}
+
+// QuotaSnapshotInterval returns the configured interval or the 5 minute default.
+func (c QuotaSnapshotsConfig) QuotaSnapshotInterval() time.Duration {
+	if c.IntervalSeconds <= 0 {
+		return 5 * time.Minute
+	}
+	return time.Duration(c.IntervalSeconds) * time.Second
+}
+
+var idvDecimalPattern = regexp.MustCompile(`^(0|[1-9]\d{0,11})(\.\d{1,12})?$`)
 var idvDatasetPattern = regexp.MustCompile(`^[a-z0-9_-]+/[a-z0-9_]+$`)
 
 type AccountingOutboxConfig struct {
@@ -104,6 +127,17 @@ func (c AccountingOutboxConfig) Validate() error {
 		}
 		if c.IDV.PricesDataset != "" && (!idvDatasetPattern.MatchString(c.IDV.PricesDataset) || c.IDV.PricesDataset == c.IDV.Dataset) {
 			return fmt.Errorf("IDV prices-dataset must be a different owner/name dataset")
+		}
+	}
+	if c.IDV.QuotaSnapshots.Enabled && !c.IDV.Enabled {
+		return fmt.Errorf("IDV quota-snapshots requires the IDV exporter to be enabled")
+	}
+	if c.IDV.QuotaSnapshots.IntervalSeconds < 0 || c.IDV.QuotaSnapshots.IntervalSeconds > 86400 {
+		return fmt.Errorf("invalid IDV quota-snapshots interval-seconds")
+	}
+	for plan, price := range c.IDV.QuotaSnapshots.PlanPricesUSD {
+		if strings.TrimSpace(plan) == "" || !idvDecimalPattern.MatchString(price) {
+			return fmt.Errorf("invalid IDV quota-snapshots plan-prices-usd entry %q", plan)
 		}
 	}
 	if c.LiteLLM.Enabled {

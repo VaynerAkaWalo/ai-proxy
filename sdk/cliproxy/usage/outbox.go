@@ -90,7 +90,7 @@ func OpenOutbox(cfg config.AccountingOutboxConfig) (*Outbox, error) {
 	err = o.view(validateOutbox)
 	if err == nil {
 		err = o.update(func(tx *bolt.Tx) error {
-			for _, name := range [][]byte{eventsBucket, deliveriesBucket} {
+			for _, name := range [][]byte{eventsBucket, deliveriesBucket, quotaSnapshotsBucket} {
 				if _, err := tx.CreateBucketIfNotExists(name); err != nil {
 					return err
 				}
