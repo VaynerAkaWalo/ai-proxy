@@ -132,3 +132,52 @@ func TestTagRejectsEncodingsIDVRefuses(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectCLISessions(t *testing.T) {
+	root := t.TempDir()
+	claude, codex := filepath.Join(root, "claude"), filepath.Join(root, "codex")
+	for path, content := range map[string]string{
+		filepath.Join(claude, "p", "s1.jsonl"): `{"sessionId":"s1","cwd":"/home/agent/code/vantage","timestamp":"2026-10-10T10:00:00Z"}
+{"sessionId":"s1","timestamp":"2026-10-10T10:05:00Z","message":"secret"}
+{"sessionId":"s1","timestamp":"2026-10-10T12:00:00Z"}
+`,
+		filepath.Join(claude, "p", "s1", "subagents", "agent-1.jsonl"): `{"sessionId":"s1","cwd":"/x","timestamp":"2026-10-10T10:06:00Z"}
+`,
+		filepath.Join(codex, "2026", "10", "10", "rollout-2026-10-10T10-00-00-0199aaaa-bbbb-cccc-dddd-eeeeffff0000.jsonl"): `{"timestamp":"2026-10-10T10:00:00Z","type":"session_meta","payload":{"id":"0199aaaa-bbbb-cccc-dddd-eeeeffff0000","cwd":"/home/agent/code/rules"}}
+`,
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sessions, err := collectCLISessions(claude, codex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(sessions)
+	got := string(raw)
+	for _, want := range []string{
+		`"provider":"claude","id":"s1","cwd":"/home/agent/code/vantage","windows":[["2026-10-10T10:00:00Z","2026-10-10T10:06:00Z"],["2026-10-10T12:00:00Z","2026-10-10T12:00:00Z"]]`,
+		`"provider":"codex","id":"0199aaaa-bbbb-cccc-dddd-eeeeffff0000","cwd":"/home/agent/code/rules"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %s in %s", want, got)
+		}
+	}
+	if strings.Contains(got, "secret") {
+		t.Error("transcript content leaked")
+	}
+
+	h := history{sessions: map[string]string{}}
+	path := writeFile(t, "cli.json", got)
+	if err := h.addCLI([]string{path}); err != nil {
+		t.Fatal(err)
+	}
+	if h.sessions["s1"] != "vantage" || len(h.windows) != 3 {
+		t.Errorf("unexpected history: %v %d", h.sessions, len(h.windows))
+	}
+}

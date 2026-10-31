@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -113,6 +114,32 @@ func loadHistory(paths []string) (history, error) {
 		}
 	}
 	return h, nil
+}
+
+func (h *history) addCLI(paths []string) error {
+	for _, path := range paths {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		var sessions []cliSession
+		if err := json.Unmarshal(raw, &sessions); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		for _, session := range sessions {
+			project := handlers.ProjectFromCwd(session.Cwd)
+			h.sessions[session.ID] = project
+			for _, w := range session.Windows {
+				start, errStart := time.Parse(time.RFC3339Nano, w[0])
+				end, errEnd := time.Parse(time.RFC3339Nano, w[1])
+				if err := errors.Join(errStart, errEnd); err != nil {
+					return fmt.Errorf("%s: window of %s: %w", path, session.ID, err)
+				}
+				h.windows = append(h.windows, window{provider: session.Provider, start: start, end: end, project: project})
+			}
+		}
+	}
+	return nil
 }
 
 // nativeSession strips the proxy's agent prefix and subagent suffix, leaving the id T3 stores.
@@ -309,6 +336,27 @@ func writeNDJSON(path string, rows []row) error {
 	return file.Close()
 }
 
+func runCollect(output, claudeDir, codexDir string) error {
+	sessions, err := collectCLISessions(claudeDir, codexDir)
+	if err != nil {
+		return err
+	}
+	raw, err := json.Marshal(sessions)
+	if err != nil {
+		return err
+	}
+	file, err := os.OpenFile(output, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return err
+	}
+	if _, err := file.Write(raw); err != nil {
+		_ = file.Close()
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "collected %d sessions\n", len(sessions))
+	return file.Close()
+}
+
 func run(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("tag_t3_projects", flag.ContinueOnError)
 	var t3Paths []string
@@ -316,6 +364,15 @@ func run(ctx context.Context, args []string) error {
 		t3Paths = append(t3Paths, path)
 		return nil
 	})
+	var cliPaths []string
+	flags.Func("cli", "Output of -collect for one machine, repeatable", func(path string) error {
+		cliPaths = append(cliPaths, path)
+		return nil
+	})
+	collect := flags.String("collect", "", "Write this machine's Claude Code and Codex session ids, cwds and activity windows to a new file and exit")
+	home, _ := os.UserHomeDir()
+	claudeDir := flags.String("claude-dir", filepath.Join(home, ".claude", "projects"), "Claude Code projects directory for -collect")
+	codexDir := flags.String("codex-dir", filepath.Join(home, ".codex", "sessions"), "Codex sessions directory for -collect")
 	existingPath := flags.String("existing", "", "JSONEachRow snapshot of the existing IDV attempts")
 	output := flags.String("output", "", "New NDJSON file for the tagged attempts")
 	apply := flags.Bool("apply", false, "Re-send tagged attempts, default is dry run")
@@ -325,8 +382,11 @@ func run(ctx context.Context, args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if len(t3Paths) == 0 || *existingPath == "" || *output == "" || !datasetID.MatchString(*dataset) {
-		return errors.New("t3, existing, output and an owner/name dataset are required")
+	if *collect != "" {
+		return runCollect(*collect, *claudeDir, *codexDir)
+	}
+	if len(t3Paths)+len(cliPaths) == 0 || *existingPath == "" || *output == "" || !datasetID.MatchString(*dataset) {
+		return errors.New("t3 or cli, existing, output and an owner/name dataset are required")
 	}
 	if *tokenEnv != "" && os.Getenv(*tokenEnv) == "" {
 		return errors.New("bearer token environment variable is empty")
@@ -334,6 +394,9 @@ func run(ctx context.Context, args []string) error {
 
 	h, err := loadHistory(t3Paths)
 	if err != nil {
+		return err
+	}
+	if err := h.addCLI(cliPaths); err != nil {
 		return err
 	}
 	rows, stats, err := tag(h, *existingPath)
