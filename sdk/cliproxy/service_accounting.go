@@ -53,7 +53,7 @@ func (s *Service) startAccountingOutbox() error {
 	}
 	s.accountingExporter.Start()
 	if cfg.IDV.Enabled && cfg.IDV.QuotaSnapshots.Enabled && s.coreManager != nil {
-		s.quotaSampler = newQuotaSnapshotSampler(outbox, s.coreManager, cfg.IDV.QuotaSnapshots)
+		s.quotaSampler = newQuotaSnapshotSampler(outbox, s.coreManager, cfg.IDV.QuotaSnapshots, s.currentConfig)
 		s.quotaSampler.Start()
 	}
 	return nil

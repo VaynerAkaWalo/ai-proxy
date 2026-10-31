@@ -31,7 +31,7 @@ type QuotaSnapshot struct {
 }
 
 // QuotaSnapshotSource is the row source value.
-const QuotaSnapshotSource = "ai-proxy"
+const QuotaSnapshotSource = "ai_proxy"
 
 func (s QuotaSnapshot) key() []byte {
 	// Time first so the oldest undelivered snapshots drain first.

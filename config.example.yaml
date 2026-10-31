@@ -1180,7 +1180,7 @@ observability:
       quota-snapshots:
         enabled: false
         interval-seconds: 300 # Minimum gap between unchanged snapshots of one account window, and scan period.
-        # Monthly plan price in USD, keyed by plan or "provider:plan" (e.g. "claude:pro"). Unlisted plans export null.
+        # Monthly plan price in USD, keyed by plan or "provider:plan" (e.g. "claude:pro", "xai:supergrok"), case-insensitive. Unlisted plans export null.
         plan-prices-usd: {}
     litellm:
       enabled: false

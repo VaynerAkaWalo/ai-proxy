@@ -159,13 +159,44 @@ type authorizationCodeExchangeRequest struct {
 // OAuthProfile is the account identity returned by Anthropic's OAuth profile endpoint.
 type OAuthProfile struct {
 	Account struct {
-		UUID  string `json:"uuid"`
-		Email string `json:"email"`
+		UUID         string `json:"uuid"`
+		Email        string `json:"email"`
+		HasClaudeMax bool   `json:"has_claude_max"`
+		HasClaudePro bool   `json:"has_claude_pro"`
 	} `json:"account"`
 	Organization struct {
-		UUID string `json:"uuid"`
-		Name string `json:"name"`
+		UUID               string `json:"uuid"`
+		Name               string `json:"name"`
+		OrganizationType   string `json:"organization_type"`
+		SubscriptionStatus string `json:"subscription_status"`
+		RateLimitTier      string `json:"rate_limit_tier"`
 	} `json:"organization"`
+}
+
+// PlanLabel names the subscription plan like the management panel does: the
+// organization tier separates Max 5x from Max 20x, Team needs an active Team
+// organization, and the account flags identify Max and Pro. It returns an empty
+// string when the profile does not identify a plan.
+func (p *OAuthProfile) PlanLabel() string {
+	if p == nil {
+		return ""
+	}
+	orgType := strings.ToLower(strings.TrimSpace(p.Organization.OrganizationType))
+	status := strings.ToLower(strings.TrimSpace(p.Organization.SubscriptionStatus))
+	tier := strings.ToLower(strings.TrimSpace(p.Organization.RateLimitTier))
+	switch {
+	case orgType == "claude_team" && status == "active":
+		return "Team"
+	case strings.HasSuffix(tier, "claude_max_20x"):
+		return "Max 20x"
+	case strings.HasSuffix(tier, "claude_max_5x"):
+		return "Max 5x"
+	case p.Account.HasClaudeMax:
+		return "Max"
+	case p.Account.HasClaudePro:
+		return "Pro"
+	}
+	return ""
 }
 
 // ClaudeAuth handles Anthropic OAuth2 authentication flow.
@@ -241,6 +272,9 @@ func (o *ClaudeAuth) fetchOAuthControlPlaneJSON(ctx context.Context, endpoint, a
 	applyClaudeOAuthAxiosHeaders(req)
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Cache-Control", "no-cache")
+	if label == "usage" {
+		req.Header.Set("anthropic-beta", "oauth-2025-04-20")
+	}
 
 	resp, errDo := o.httpClient.Do(req)
 	if errDo != nil {
@@ -275,6 +309,16 @@ func (o *ClaudeAuth) FetchOAuthProfile(ctx context.Context, accessToken string) 
 		return nil, fmt.Errorf("fetch Claude OAuth profile: response account UUID is empty")
 	}
 	return &profile, nil
+}
+
+// FetchOAuthUsage reads the OAuth usage endpoint, optionally with the reset
+// grant (manual reset) block the management panel requests.
+func (o *ClaudeAuth) FetchOAuthUsage(ctx context.Context, accessToken string, withResetGrants bool) ([]byte, error) {
+	endpoint := "https://api.anthropic.com/api/oauth/usage"
+	if withResetGrants {
+		endpoint += "?cedar_ember=1&skip_spend=1"
+	}
+	return o.fetchOAuthControlPlaneJSON(ctx, endpoint, accessToken, "usage")
 }
 
 // FetchOAuthRoles performs the claude_cli roles lookup the native client issues

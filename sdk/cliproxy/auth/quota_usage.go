@@ -131,10 +131,20 @@ func (a *Auth) QuotaPlan() string {
 	}
 	for _, candidate := range candidates {
 		if candidate = strings.TrimSpace(candidate); candidate != "" {
-			return candidate
+			return DisplayQuotaPlan(candidate)
 		}
 	}
 	return ""
+}
+
+// DisplayQuotaPlan capitalizes plan names the upstream reports in lower case
+// ("pro" becomes "Pro"). Other spellings are kept as reported.
+func DisplayQuotaPlan(plan string) string {
+	plan = strings.TrimSpace(plan)
+	if plan == "" || plan != strings.ToLower(plan) || strings.ContainsAny(plan, " _-:") {
+		return plan
+	}
+	return strings.ToUpper(plan[:1]) + plan[1:]
 }
 
 func newQuotaWindowUsage(window string, utilization float64, signals map[string]string, resetKey string, observedAt time.Time) QuotaWindowUsage {
