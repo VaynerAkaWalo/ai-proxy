@@ -14,13 +14,9 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// quotaSnapshotSampler turns the credentials' existing passive quota
-// observations into durable quota snapshot rows. It never calls upstream.
-//
-// A window is exported when its observation is newer than the last exported one
-// and either utilization or reset time changed, or at least the configured
-// interval of observation time passed. observed_at is the upstream observation
-// time, so idle accounts do not get fabricated fresh timestamps.
+// quotaSnapshotSampler exports passive quota observations without calling upstream.
+// A window is sent when it changed or the interval passed. observed_at is the
+// upstream time, so idle accounts don't get fresh timestamps.
 type quotaSnapshotSampler struct {
 	outbox  *usage.Outbox
 	manager *coreauth.Manager
@@ -37,7 +33,6 @@ type quotaSnapshotSampler struct {
 	failures int
 }
 
-// quotaProbeState is the latest upstream probe of one credential and its schedule.
 type quotaProbeState struct {
 	result  *quotaprobe.Result
 	nextAt  time.Time
@@ -111,9 +106,8 @@ func (q *quotaSnapshotSampler) scan() {
 	}
 }
 
-// probeLoop refreshes plan, manual reset counts and (for xAI) usage windows from
-// the upstream endpoints the management panel uses. Probes are spaced per
-// credential and back off on failure.
+// probeLoop refreshes plan, manual resets and xAI usage windows, spaced per
+// credential with backoff.
 func (q *quotaSnapshotSampler) probeLoop(ctx context.Context) {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
@@ -178,8 +172,7 @@ func (q *quotaSnapshotSampler) observe(auth *coreauth.Auth) {
 		probe = state.result
 	}
 
-	// Header-derived windows come from the passive observation; a probe window
-	// is used when there is no header window or the probe is newer.
+	// Probe windows are used when there is no header window or the probe is newer.
 	byWindow := map[string]quotaWindowObservation{}
 	var order []string
 	if !auth.Quota.ObservedAt.IsZero() {

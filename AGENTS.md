@@ -44,6 +44,7 @@ go build -o test-output ./cmd/server && rm test-output # Verify compile (REQUIRE
 ## Code Conventions
 - Keep changes small and simple (KISS)
 - Comments in English only
+- Comment only what the code can't say (why, gotchas, external quirks). No comments that restate code, and don't mirror the comment density of nearby code
 - If editing code that already contains non-English comments, translate them to English (don’t add new non-English comments)
 - For user-visible strings, keep the existing language used in that file/area
 - New Markdown docs should be in English unless the file is explicitly language-specific (e.g. `README_CN.md`)

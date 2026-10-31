@@ -15,16 +15,14 @@ const (
 	quotaSnapshotsBatchSize   = 256
 )
 
-// QuotaSnapshotsDataset derives the quota snapshot dataset id from the attempts
-// dataset so both share the same owner.
+// QuotaSnapshotsDataset puts snapshots under the attempts dataset's owner.
 func QuotaSnapshotsDataset(attemptsDataset string) string {
 	owner, _, _ := strings.Cut(attemptsDataset, "/")
 	return owner + "/" + quotaSnapshotsDatasetName
 }
 
-// exportQuotaSnapshots registers the dataset once, then delivers stored
-// snapshots. Rows are deleted only after the receiver acknowledged the exact
-// row count; IDV replaces rows with the same key, so resending is safe.
+// exportQuotaSnapshots deletes rows only after the receiver acks the exact count.
+// IDV replaces rows by key, so resending is safe.
 func (e *IDVExporter) exportQuotaSnapshots(ctx context.Context) error {
 	if !e.quotaRegistered && !e.registerQuotaDataset(ctx) {
 		return nil

@@ -173,10 +173,7 @@ type OAuthProfile struct {
 	} `json:"organization"`
 }
 
-// PlanLabel names the subscription plan like the management panel does: the
-// organization tier separates Max 5x from Max 20x, Team needs an active Team
-// organization, and the account flags identify Max and Pro. It returns an empty
-// string when the profile does not identify a plan.
+// PlanLabel names the plan like the management panel does, or "" when unknown.
 func (p *OAuthProfile) PlanLabel() string {
 	if p == nil {
 		return ""
@@ -311,8 +308,7 @@ func (o *ClaudeAuth) FetchOAuthProfile(ctx context.Context, accessToken string) 
 	return &profile, nil
 }
 
-// FetchOAuthUsage reads the OAuth usage endpoint, optionally with the reset
-// grant (manual reset) block the management panel requests.
+// FetchOAuthUsage reads the OAuth usage endpoint, optionally with manual reset grants.
 func (o *ClaudeAuth) FetchOAuthUsage(ctx context.Context, accessToken string, withResetGrants bool) ([]byte, error) {
 	endpoint := "https://api.anthropic.com/api/oauth/usage"
 	if withResetGrants {
