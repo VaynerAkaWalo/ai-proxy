@@ -1,6 +1,7 @@
 -- Run against T3's statev2.sqlite: sqlite3 -json statev2.sqlite < export.sql > t3.json
 select
   json_extract(pt.payload_json, '$.nativeThreadRef.nativeId') as native_id,
+  pt.provider as provider,
   coalesce(json_extract(t.payload_json, '$.worktreePath'), p.workspace_root) as cwd,
   (
     select json_group_array(json_array(r.requested_at, r.completed_at, json_extract(r.payload_json, '$.modelSelection.model')))
@@ -19,6 +20,7 @@ select * from (
       when 'claudeAgent' then json_extract(resume_cursor_json, '$.resume')
       else json_extract(resume_cursor_json, '$.threadId')
     end as native_id,
+    provider_name as provider,
     json_extract(runtime_payload_json, '$.cwd') as cwd,
     '[]' as runs
   from provider_session_runtime

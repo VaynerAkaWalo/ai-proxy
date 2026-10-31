@@ -18,12 +18,13 @@ func writeFile(t *testing.T, name, content string) string {
 }
 
 const threads = `[
-  {"native_id":"aaaa","cwd":"/home/agent/.t3/worktrees/ai-proxy/t3-1","runs":"[[\"2026-10-10T10:00:00.000Z\",\"2026-10-10T11:00:00.000Z\",\"claude-opus-5-5\"]]"},
-  {"native_id":"bbbb","cwd":"/Users/me/code/analytics","runs":"[[\"2026-10-10T10:30:00.000Z\",\"2026-10-10T12:00:00.000Z\",\"gpt-6.1-sol\"]]"},
-  {"native_id":"cccc","cwd":"/home/agent/.t3/scratch/chat-1","runs":"[[\"2026-10-10T12:00:00.000Z\",\"2026-10-10T13:00:00.000Z\",\"claude-opus-5-5\"]]"},
-  {"native_id":"dddd","cwd":"/home/agent/code/rules","runs":"[[\"2026-10-10T10:50:00.000Z\",\"2026-10-10T10:55:00.000Z\",\"claude-haiku-5-5\"]]"},
-  {"native_id":"gggg","cwd":"/home/agent/code/thinky","runs":"[[\"2026-10-10T10:00:00.000Z\",\"2026-10-10T11:00:00.000Z\",\"grok-4.7\"]]"},
-  {"native_id":"eeee","cwd":"/home/agent/code/vantage","runs":"[]"}
+  {"native_id":"aaaa","provider":"claudeAgent","cwd":"/home/agent/.t3/worktrees/ai-proxy/t3-1","runs":"[[\"2026-10-10T10:00:00.000Z\",\"2026-10-10T11:00:00.000Z\",\"claude-opus-5-5\"]]"},
+  {"native_id":"bbbb","provider":"codex","cwd":"/Users/me/code/analytics","runs":"[[\"2026-10-10T10:30:00.000Z\",\"2026-10-10T12:00:00.000Z\",\"gpt-6.1-sol\"]]"},
+  {"native_id":"cccc","provider":"claudeAgent","cwd":"/home/agent/.t3/scratch/chat-1","runs":"[[\"2026-10-10T12:00:00.000Z\",\"2026-10-10T13:00:00.000Z\",\"claude-opus-5-5\"]]"},
+  {"native_id":"dddd","provider":"claudeAgent","cwd":"/home/agent/code/rules","runs":"[[\"2026-10-10T10:50:00.000Z\",\"2026-10-10T10:55:00.000Z\",\"claude-haiku-5-5\"]]"},
+  {"native_id":"gggg","provider":"claudeAgent","cwd":"/home/agent/code/thinky","runs":"[[\"2026-10-10T10:00:00.000Z\",\"2026-10-10T11:00:00.000Z\",\"grok-4.7\"]]"},
+  {"native_id":"hhhh","provider":"cursor","cwd":"/home/agent/code/barricade","runs":"[[\"2026-10-10T10:00:00.000Z\",\"2026-10-10T11:00:00.000Z\",\"claude-opus-5-5\"]]"},
+  {"native_id":"eeee","provider":"codex","cwd":"/home/agent/code/vantage","runs":"[]"}
 ]`
 
 func attempt(id, session, provider, started, completed, project string) string {

@@ -24,6 +24,7 @@ import (
 
 type t3Thread struct {
 	NativeID string `json:"native_id"`
+	Provider string `json:"provider"`
 	Cwd      string `json:"cwd"`
 	Runs     string `json:"runs"`
 }
@@ -48,6 +49,9 @@ type outcome struct {
 }
 
 type report map[string]*outcome
+
+// Drivers that reach models through ai-proxy, unlike Cursor or Antigravity with their own backends.
+var proxiedDrivers = map[string]bool{"claudeAgent": true, "codex": true, "grok": true}
 
 // T3 drivers can run another vendor's models, so the upstream ai-proxy records follows the model.
 var modelProviders = []struct{ prefix, provider string }{
@@ -87,6 +91,9 @@ func loadHistory(paths []string) (history, error) {
 			project := handlers.ProjectFromCwd(thread.Cwd)
 			h.sessions[thread.NativeID] = project
 
+			if !proxiedDrivers[thread.Provider] {
+				continue
+			}
 			var runs [][3]string
 			if err := json.Unmarshal([]byte(thread.Runs), &runs); err != nil {
 				return h, fmt.Errorf("%s: runs of %s: %w", path, thread.NativeID, err)
