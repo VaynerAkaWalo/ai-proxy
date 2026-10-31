@@ -1,4 +1,4 @@
-// Command tag_t3_projects backfills the project of IDV attempts recorded before ai-proxy tagged
+// Command tag_t3_projects backfills the project of Analytics attempts recorded before ai-proxy tagged
 // projects, attributing each attempt to the T3 chat that made it.
 package main
 
@@ -191,12 +191,12 @@ func stringValue(value any) string {
 	return s
 }
 
-// ClickHouse exports DateTime64(3, 'UTC') without a zone, IDV requires one.
+// ClickHouse exports DateTime64(3, 'UTC') without a zone, Analytics requires one.
 func snapshotTime(value any) (time.Time, error) {
 	return time.Parse("2006-01-02 15:04:05.999", stringValue(value))
 }
 
-// checkResendable rejects snapshot encodings IDV would refuse when the attempt is sent back,
+// checkResendable rejects snapshot encodings Analytics would refuse when the attempt is sent back,
 // so a wrong export fails the dry run instead of an upload halfway through.
 func checkResendable(attempt row) error {
 	if _, ok := attempt["cost_usd"].(json.Number); ok {
@@ -256,7 +256,7 @@ func tag(h history, snapshotPath string) ([]row, report, error) {
 			return err
 		}
 		if stringValue(attempt["source"]) == "" || stringValue(attempt["execution_id"]) == "" {
-			return errors.New("invalid IDV key")
+			return errors.New("invalid Analytics key")
 		}
 		if err := checkResendable(attempt); err != nil {
 			return err
@@ -392,10 +392,10 @@ func run(ctx context.Context, args []string) error {
 	home, _ := os.UserHomeDir()
 	claudeDir := flags.String("claude-dir", filepath.Join(home, ".claude", "projects"), "Claude Code projects directory for -collect")
 	codexDir := flags.String("codex-dir", filepath.Join(home, ".codex", "sessions"), "Codex sessions directory for -collect")
-	existingPath := flags.String("existing", "", "JSONEachRow snapshot of the existing IDV attempts")
+	existingPath := flags.String("existing", "", "JSONEachRow snapshot of the existing Analytics attempts")
 	output := flags.String("output", "", "New NDJSON file for the tagged attempts")
 	apply := flags.Bool("apply", false, "Re-send tagged attempts, default is dry run")
-	url := flags.String("url", "https://analytics.blamedevs.com", "IDV base URL")
+	url := flags.String("url", "https://analytics.blamedevs.com", "Analytics base URL")
 	dataset := flags.String("dataset", "pawel/llm_usage", "Destination dataset owner/name")
 	tokenEnv := flags.String("token-env", "", "Optional environment variable containing a bearer token")
 	if err := flags.Parse(args); err != nil {

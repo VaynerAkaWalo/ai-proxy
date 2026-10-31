@@ -118,7 +118,7 @@ func TestTagResendsZonedTimestamps(t *testing.T) {
 	}
 }
 
-func TestTagRejectsEncodingsIDVRefuses(t *testing.T) {
+func TestTagRejectsEncodingsAnalyticsRefuses(t *testing.T) {
 	h, err := loadHistory([]string{writeFile(t, "t3.json", threads)})
 	if err != nil {
 		t.Fatal(err)
