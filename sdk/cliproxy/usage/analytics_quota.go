@@ -24,9 +24,6 @@ func QuotaSnapshotsDataset(attemptsDataset string) string {
 // exportQuotaSnapshots deletes rows only after the receiver acks the exact count.
 // Analytics replaces rows by key, so resending is safe.
 func (e *AnalyticsExporter) exportQuotaSnapshots(ctx context.Context) error {
-	if !e.quotaRegistered && !e.registerQuotaDataset(ctx) {
-		return nil
-	}
 	keys, rows, err := e.outbox.pendingQuotaSnapshots(quotaSnapshotsBatchSize)
 	if err != nil || len(rows) == 0 {
 		return err
@@ -39,11 +36,12 @@ func (e *AnalyticsExporter) exportQuotaSnapshots(ctx context.Context) error {
 		}
 	}
 	state, _ := e.sendDataset(ctx, QuotaSnapshotsDataset(e.cfg.Dataset), body.Bytes(), len(rows))
+	if e.Status() == "dataset_or_route_missing" && e.registerQuotaDataset(ctx) {
+		state, _ = e.sendDataset(ctx, QuotaSnapshotsDataset(e.cfg.Dataset), body.Bytes(), len(rows))
+	}
+
 	if state == DeliveryAcknowledged {
 		return e.outbox.ackQuotaSnapshots(keys, rows)
-	}
-	if e.Status() == "dataset_or_route_missing" {
-		e.quotaRegistered = false
 	}
 	return nil
 }
@@ -72,7 +70,6 @@ func (e *AnalyticsExporter) registerQuotaDataset(ctx context.Context) bool {
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024*1024))
 	switch {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300, resp.StatusCode == http.StatusConflict:
-		e.quotaRegistered = true
 		return true
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
 		e.setStatus("authorization_failure")
