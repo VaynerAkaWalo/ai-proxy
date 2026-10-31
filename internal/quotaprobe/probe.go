@@ -10,6 +10,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -74,10 +75,33 @@ func Probe(ctx context.Context, cfg *config.Config, auth *coreauth.Auth) (*Resul
 	return nil, fmt.Errorf("quota probe: unsupported provider")
 }
 
+// ownHosts lists the hosts a credential's base_url may point to for its token
+// to belong to the probed service.
+var ownHosts = map[string][]string{
+	"claude": {"api.anthropic.com"},
+	"codex":  {"chatgpt.com", "chat.openai.com"},
+	"xai":    {"api.x.ai", "cli-chat-proxy.grok.com"},
+}
+
+// accessToken returns the credential's OAuth access token, or "" when the
+// credential is not a subscription OAuth credential of the probed service.
+// Configured API keys and credentials with a third-party base_url are skipped so
+// their secrets are never sent to the provider's hard-coded endpoints.
 func accessToken(auth *coreauth.Auth) string {
+	provider := strings.ToLower(strings.TrimSpace(auth.Provider))
+	if auth.Attributes != nil && strings.TrimSpace(auth.Attributes["api_key"]) != "" {
+		return ""
+	}
+	baseURLs := []string{}
 	if auth.Attributes != nil {
-		if v := strings.TrimSpace(auth.Attributes["api_key"]); v != "" && strings.EqualFold(auth.Provider, "xai") {
-			return v
+		baseURLs = append(baseURLs, auth.Attributes["base_url"])
+	}
+	if v, ok := auth.Metadata["base_url"].(string); ok {
+		baseURLs = append(baseURLs, v)
+	}
+	for _, raw := range baseURLs {
+		if raw = strings.TrimSpace(raw); raw != "" && !ownHost(provider, raw) {
+			return ""
 		}
 	}
 	for _, key := range []string{"access_token", "accessToken"} {
@@ -86,6 +110,19 @@ func accessToken(auth *coreauth.Auth) string {
 		}
 	}
 	return ""
+}
+
+func ownHost(provider, rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme != "https" {
+		return false
+	}
+	for _, host := range ownHosts[provider] {
+		if strings.EqualFold(parsed.Hostname(), host) {
+			return true
+		}
+	}
+	return false
 }
 
 func probeClaude(ctx context.Context, cfg *config.Config, auth *coreauth.Auth, token string) (*Result, error) {

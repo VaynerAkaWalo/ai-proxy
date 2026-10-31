@@ -53,7 +53,8 @@ type quotaSnapshotMark struct {
 	utilization string
 	resetsAt    time.Time
 	observedAt  time.Time
-	manual      int // -1 when unknown
+	manual      int    // -1 when unknown
+	metadata    string // plan, price and manual resets
 }
 
 func newQuotaSnapshotSampler(outbox *usage.Outbox, manager *coreauth.Manager, cfg config.QuotaSnapshotsConfig, current func() *config.Config) *quotaSnapshotSampler {
@@ -221,6 +222,10 @@ func (q *quotaSnapshotSampler) observe(auth *coreauth.Auth) {
 		plan = &planName
 		price = q.planPrice(provider, planName)
 	}
+	metadata := planName + "|" + strconv.Itoa(manualMark)
+	if price != nil {
+		metadata += "|" + *price
+	}
 
 	var rows []usage.QuotaSnapshot
 	marks := make([]quotaSnapshotMark, 0, len(order))
@@ -229,13 +234,20 @@ func (q *quotaSnapshotSampler) observe(auth *coreauth.Auth) {
 		observation := byWindow[name]
 		window, observedAt := observation.usage, observation.observedAt
 		key := auth.ID + "|" + window.Window
-		mark := quotaSnapshotMark{utilization: formatQuotaUtilization(window.Utilization), resetsAt: window.ResetsAt.Truncate(time.Second), observedAt: observedAt, manual: manualMark}
+		mark := quotaSnapshotMark{utilization: formatQuotaUtilization(window.Utilization), resetsAt: window.ResetsAt.Truncate(time.Second), observedAt: observedAt, manual: manualMark, metadata: metadata}
 		previous, seen := q.last[key]
 		if seen {
+			// A probe can learn plan, price or manual resets without a newer usage
+			// observation; such a change is exported with the probe time.
+			metadataChanged := previous.metadata != mark.metadata
+			if metadataChanged && probe != nil && probe.ObservedAt.After(observedAt) {
+				observedAt = probe.ObservedAt
+				mark.observedAt = observedAt
+			}
 			if !observedAt.After(previous.observedAt) {
 				continue
 			}
-			unchanged := previous.utilization == mark.utilization && previous.manual == mark.manual && quotaResetsClose(previous.resetsAt, mark.resetsAt)
+			unchanged := !metadataChanged && previous.utilization == mark.utilization && quotaResetsClose(previous.resetsAt, mark.resetsAt)
 			if unchanged && observedAt.Sub(previous.observedAt) < q.cfg.QuotaSnapshotInterval() {
 				continue
 			}
