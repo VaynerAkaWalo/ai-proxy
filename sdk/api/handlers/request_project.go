@@ -180,6 +180,8 @@ func projectFromCwd(cwd string) string {
 			return segmentAt(segments, i+2)
 		case segment == "worktrees": // ~/.t3/worktrees/<repo>/<branch>
 			return segmentAt(segments, i+1)
+		case segment == "scratch" && segmentAt(segments, i-1) == ".t3": // ~/.t3/scratch/<chat>, a T3 chat without a project
+			return ""
 		}
 	}
 
