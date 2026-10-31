@@ -37,6 +37,7 @@ type AccountingEvent struct {
 	NodeKind             string            `json:"node_kind,omitempty"`
 	IsFork               bool              `json:"is_fork,omitempty"`
 	IsCompaction         bool              `json:"is_compaction,omitempty"`
+	Project              string            `json:"project,omitempty"`
 	Tokens               *AccountingTokens `json:"tokens,omitempty"`
 }
 
@@ -98,6 +99,7 @@ func NewAccountingEvent(ctx context.Context, record Record) AccountingEvent {
 		NodeKind:        meta.NodeKind,
 		IsFork:          meta.IsFork,
 		IsCompaction:    meta.IsCompaction,
+		Project:         meta.Project,
 	}
 	if record.ExecutedModel != "" {
 		event.ExecutedModel = record.ExecutedModel
