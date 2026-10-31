@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/config"
 	"github.com/tidwall/gjson"
 )
@@ -50,38 +51,56 @@ func enrichContextWithProject(ctx context.Context, payload []byte) context.Conte
 	return logging.WithClientRequestMetadata(ctx, meta)
 }
 
+// requestProject remembers the derived project on the connection because websocket
+// continuations only carry incremental input without the client's environment.
 func requestProject(ctx context.Context, payload []byte) string {
-	if ginCtx, ok := ctx.Value("gin").(*gin.Context); ok && ginCtx != nil {
+	ginCtx, _ := ctx.Value("gin").(*gin.Context)
+	if ginCtx != nil {
 		if project := ginCtx.GetString(projectContextKey); project != "" {
 			return project
 		}
 	}
-	return projectFromCwd(cwdFromPayload(payload))
+
+	project := strings.Clone(projectFromCwd(cwdFromPayload(payload)))
+	if ginCtx != nil && project != "" {
+		ginCtx.Set(projectContextKey, project)
+	}
+	return project
 }
 
 // cwdMarkers are where coding agents announce their working directory in the prompt.
 var cwdMarkers = []struct{ start, end string }{
-	{"<cwd>", "</cwd>"},                  // Codex <environment_context>
-	{"Working directory: ", "\n"},        // Claude Code (older), opencode
-	{"working directory: ", "\n"},        // Claude Code "Primary working directory: "
-	{"working in the directory: ", "\n"}, // Gemini CLI
+	{"<cwd>", "</cwd>"},                        // Codex <environment_context>
+	{"Working directory: ", "\n"},              // Claude Code (older), opencode
+	{"working directory: ", "\n"},              // Claude Code "Primary working directory: "
+	{"**Workspace Directories:**\n  - ", "\n"}, // Gemini CLI
+	{"working in the directory: ", "\n"},       // Gemini CLI (older)
 }
 
 // cwdFromPayload looks only at instructions and the leading context messages, which is
-// where clients put their environment, so long conversations are not scanned.
+// where clients put their environment, so long conversations are not scanned. The result
+// may reference payload memory.
 func cwdFromPayload(payload []byte) string {
-	if len(payload) == 0 {
-		return ""
-	}
+	var instructions, messages []gjson.Result
+	util.ParseGJSONBytesNoCopy(payload).ForEach(func(key, value gjson.Result) bool {
+		switch key.Str {
+		case "system", "instructions":
+			instructions = append(instructions, value)
+		case "systemInstruction", "system_instruction":
+			instructions = append(instructions, value.Get("parts"))
+		case "messages", "input", "contents":
+			messages = append(messages, value)
+		}
+		return true
+	})
 
-	for _, path := range []string{"system", "instructions", "systemInstruction.parts", "system_instruction.parts"} {
-		if cwd := cwdFromContent(gjson.GetBytes(payload, path)); cwd != "" {
+	for _, content := range instructions {
+		if cwd := cwdFromContent(content); cwd != "" {
 			return cwd
 		}
 	}
-
-	for _, path := range []string{"messages", "input", "contents"} {
-		if cwd := cwdFromLeadingMessages(gjson.GetBytes(payload, path)); cwd != "" {
+	for _, leading := range messages {
+		if cwd := cwdFromLeadingMessages(leading); cwd != "" {
 			return cwd
 		}
 	}
