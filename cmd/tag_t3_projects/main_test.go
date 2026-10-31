@@ -139,7 +139,7 @@ func TestCollectCLISessions(t *testing.T) {
 	for path, content := range map[string]string{
 		filepath.Join(claude, "p", "s1.jsonl"): `{"sessionId":"s1","cwd":"/home/agent/code/vantage","timestamp":"2026-10-10T10:00:00Z"}
 {"sessionId":"s1","timestamp":"2026-10-10T10:05:00Z","message":"secret"}
-{"sessionId":"s1","timestamp":"2026-10-10T12:00:00Z"}
+{"sessionId":"s1","timestamp":"2026-10-10T12:00:00Z","blob":"` + strings.Repeat("x", 2<<20) + `"}
 `,
 		filepath.Join(claude, "p", "s1", "subagents", "agent-1.jsonl"): `{"sessionId":"s1","cwd":"/x","timestamp":"2026-10-10T10:06:00Z"}
 `,

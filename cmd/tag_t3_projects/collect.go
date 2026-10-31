@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -54,7 +58,7 @@ func collectCLISessions(claudeDir, codexDir string) ([]cliSession, error) {
 			if entry.IsDir() || !strings.HasSuffix(path, ".jsonl") {
 				return nil
 			}
-			return readLines(path, func(raw []byte) error {
+			return readLongLines(path, func(raw []byte) error {
 				var line cliLine
 				if json.Unmarshal(raw, &line) != nil {
 					return nil
@@ -118,4 +122,29 @@ func (a *activity) windows() [][2]string {
 	}
 	flush()
 	return windows
+}
+
+// readLongLines has no line size cap: session transcripts hold lines with embedded files and images.
+func readLongLines(path string, consume func([]byte) error) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+
+	reader := bufio.NewReaderSize(file, 1<<20)
+	for {
+		line, err := reader.ReadBytes('\n')
+		if len(line) > 0 {
+			if errConsume := consume(line); errConsume != nil {
+				return fmt.Errorf("%s: %w", path, errConsume)
+			}
+		}
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
 }
