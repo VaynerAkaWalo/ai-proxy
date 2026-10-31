@@ -22,6 +22,7 @@ json_string() {
 
 umask 077
 
+analytics_token=$(fetch_secret ai-proxy-analytics-token)
 access_token=$(fetch_secret ai-proxy-access-key)
 LLM_ACCESS_TOKEN=$(json_string "$access_token")
 LITELLM_KEY_HASH=$(printf %s "$access_token" | sha256sum | cut -d' ' -f1)
@@ -32,6 +33,7 @@ envsubst '${LLM_ACCESS_TOKEN} ${LITELLM_KEY_HASH} ${LITELLM_CLIENT_ID}' < "$depl
 mv "$out_dir/config.yaml.new" "$out_dir/config.yaml"
 
 {
+  printf 'ANALYTICS_INGEST_TOKEN=%s\n' "$analytics_token"
   echo "MANAGEMENT_PASSWORD=$(fetch_secret cli-proxy-api-management-password)"
   echo "LITELLM_ACCOUNTING_ADMIN_KEY=$(fetch_secret litellm-masterkey)"
   echo "GRAFANA_CLOUD_LOGS_TOKEN=$(fetch_secret grafana-alloy-token)"

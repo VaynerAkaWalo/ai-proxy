@@ -25,11 +25,9 @@ type AnalyticsExporter struct {
 	token    string
 	mu       sync.RWMutex
 	exportMu sync.Mutex
-	// quotaRegistered is guarded by exportMu.
-	quotaRegistered bool
-	status          string
-	cancel          context.CancelFunc
-	done            chan struct{}
+	status   string
+	cancel   context.CancelFunc
+	done     chan struct{}
 }
 
 func NewAnalyticsExporter(outbox *Outbox, cfg config.AnalyticsExporterConfig) *AnalyticsExporter {
