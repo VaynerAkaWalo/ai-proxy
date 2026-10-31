@@ -61,7 +61,7 @@ func requestProject(ctx context.Context, payload []byte) string {
 		}
 	}
 
-	project := strings.Clone(projectFromCwd(cwdFromPayload(payload)))
+	project := strings.Clone(ProjectFromCwd(cwdFromPayload(payload)))
 	if ginCtx != nil && project != "" {
 		ginCtx.Set(projectContextKey, project)
 	}
@@ -158,9 +158,9 @@ func cwdFromText(text string) string {
 	return ""
 }
 
-// projectFromCwd names the repository a working directory belongs to, resolving agent
+// ProjectFromCwd names the repository a working directory belongs to, resolving agent
 // worktrees back to their repository. Only the name leaves this function, never the path.
-func projectFromCwd(cwd string) string {
+func ProjectFromCwd(cwd string) string {
 	cwd = strings.TrimRight(strings.ReplaceAll(cwd, `\`, "/"), "/")
 	if cwd == "" {
 		return ""
