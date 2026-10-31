@@ -181,3 +181,31 @@ func TestCollectCLISessions(t *testing.T) {
 		t.Errorf("unexpected history: %v %d", h.sessions, len(h.windows))
 	}
 }
+
+func TestTagRenamesProjects(t *testing.T) {
+	h, err := loadHistory([]string{writeFile(t, "t3.json", threads)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.rename = map[string]string{"vantage": "analytics", "old": "analytics"}
+	snapshot := strings.Join([]string{
+		attempt("attributed", "codex:eeee", "codex", "2026-10-10 10:00:00.000", "2026-10-10 10:00:01.000", ""),
+		attempt("live-tagged", "", "claude", "2026-10-10 10:10:00.000", "2026-10-10 10:10:01.000", "old"),
+		attempt("untouched", "", "claude", "2026-10-10 10:10:00.000", "2026-10-10 10:10:01.000", "thinky"),
+	}, "\n")
+
+	rows, stats, err := tag(h, writeFile(t, "snapshot.ndjson", snapshot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]any{}
+	for _, row := range rows {
+		got[row["execution_id"].(string)] = row["project"]
+	}
+	if len(got) != 2 || got["attributed"] != "analytics" || got["live-tagged"] != "analytics" {
+		t.Errorf("tagged %v", got)
+	}
+	if stats["already_tagged"].Attempts != 1 || stats["project:analytics"].Attempts != 2 {
+		t.Errorf("stats %+v", stats)
+	}
+}

@@ -39,6 +39,8 @@ type window struct {
 type history struct {
 	sessions map[string]string
 	windows  []window
+	// rename merges project names, for repositories that belong to one product.
+	rename map[string]string
 }
 
 type row map[string]any
@@ -259,7 +261,9 @@ func tag(h history, snapshotPath string) ([]row, report, error) {
 		if err := checkResendable(attempt); err != nil {
 			return err
 		}
-		if attempt["project"] != nil {
+		existing, _ := attempt["project"].(string)
+		renamed, isRenamed := h.rename[existing]
+		if attempt["project"] != nil && !isRenamed {
 			stats.add("already_tagged", attempt)
 			return nil
 		}
@@ -272,7 +276,13 @@ func tag(h history, snapshotPath string) ([]row, report, error) {
 		if err != nil {
 			return err
 		}
-		project, how := h.attribute(attempt, started, completed)
+		project, how := renamed, "renamed"
+		if !isRenamed {
+			project, how = h.attribute(attempt, started, completed)
+			if renamedProject, ok := h.rename[project]; ok {
+				project = renamedProject
+			}
+		}
 		stats.add(how, attempt)
 		if project == "" {
 			return nil
@@ -369,6 +379,15 @@ func run(ctx context.Context, args []string) error {
 		cliPaths = append(cliPaths, path)
 		return nil
 	})
+	renames := map[string]string{}
+	flags.Func("rename", "Merge a project into another as old=new, repeatable", func(value string) error {
+		old, merged, ok := strings.Cut(value, "=")
+		if !ok || old == "" || merged == "" {
+			return errors.New("rename needs old=new")
+		}
+		renames[old] = merged
+		return nil
+	})
 	collect := flags.String("collect", "", "Write this machine's Claude Code and Codex session ids, cwds and activity windows to a new file and exit")
 	home, _ := os.UserHomeDir()
 	claudeDir := flags.String("claude-dir", filepath.Join(home, ".claude", "projects"), "Claude Code projects directory for -collect")
@@ -396,6 +415,7 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	h.rename = renames
 	if err := h.addCLI(cliPaths); err != nil {
 		return err
 	}
