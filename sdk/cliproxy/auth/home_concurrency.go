@@ -279,7 +279,7 @@ func verifyAccountedHomeConcurrencyIdentity(tuple homeConcurrencyTuple, auth *Au
 }
 
 // SafeResponseHeaders returns trusted response headers only for concrete
-// retry/cooldown errors and a provider's own Retry-After on a rejected request.
+// retry/cooldown errors.
 func SafeResponseHeaders(err error) http.Header {
 	var busy *HomeConcurrencyBusyError
 	if errors.As(err, &busy) && busy != nil {
