@@ -1152,11 +1152,10 @@ func openAICompatStreamDataError(payload []byte, eventName string) (statusErr, b
 }
 
 type statusErr struct {
-	code             int
-	msg              string
-	retryAfter       *time.Duration
-	credentialScoped bool
-	// providerRetryAfter is the provider's own Retry-After header, kept verbatim for the client.
+	code               int
+	msg                string
+	retryAfter         *time.Duration
+	credentialScoped   bool
 	providerRetryAfter string
 }
 
@@ -1170,11 +1169,8 @@ func (e statusErr) StatusCode() int            { return e.code }
 func (e statusErr) RetryAfter() *time.Duration { return e.retryAfter }
 func (e statusErr) IsCredentialScoped() bool   { return e.credentialScoped }
 
-// ProviderRetryAfter returns the provider-supplied Retry-After value, empty when it sent none.
 func (e statusErr) ProviderRetryAfter() string { return e.providerRetryAfter }
 
-// providerRetryAfterHeader returns the Retry-After header of a 429 only when it is a valid
-// delay in seconds or an HTTP date, so the client never receives a value the provider did not send.
 func providerRetryAfterHeader(status int, headers http.Header) string {
 	if status != http.StatusTooManyRequests {
 		return ""

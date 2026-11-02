@@ -16,8 +16,6 @@ const (
 	catalogRetryBackoff = 15 * time.Minute
 )
 
-// refreshCatalogLoop downloads the catalog immediately and then every configured interval.
-// A failed refresh keeps the current price book and retries sooner than the normal interval.
 func (o *Outbox) refreshCatalogLoop(ctx context.Context) {
 	interval := time.Duration(o.cfg.Pricing.LiteLLMCatalogRefreshHours) * time.Hour
 	for {

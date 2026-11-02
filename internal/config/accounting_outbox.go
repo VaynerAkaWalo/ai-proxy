@@ -30,8 +30,7 @@ type PriceAlias struct {
 }
 
 type PricingConfig struct {
-	LiteLLMCatalogPath string `yaml:"litellm-catalog-path" json:"litellm-catalog-path"`
-	// LiteLLMCatalogURL, when set, is downloaded at startup and every LiteLLMCatalogRefreshHours.
+	LiteLLMCatalogPath         string       `yaml:"litellm-catalog-path" json:"litellm-catalog-path"`
 	LiteLLMCatalogURL          string       `yaml:"litellm-catalog-url" json:"litellm-catalog-url"`
 	LiteLLMCatalogRefreshHours int          `yaml:"litellm-catalog-refresh-hours" json:"litellm-catalog-refresh-hours"`
 	Overrides                  []PriceRate  `yaml:"overrides" json:"overrides"`
@@ -52,27 +51,21 @@ type LiteLLMIdentity struct {
 }
 
 type AnalyticsExporterConfig struct {
-	Enabled       bool   `yaml:"enabled" json:"enabled"`
-	URL           string `yaml:"url" json:"url"`
-	Dataset       string `yaml:"dataset" json:"dataset"`
-	PricesDataset string `yaml:"prices-dataset" json:"prices-dataset"`
-	TokenEnv      string `yaml:"token-env" json:"token-env"`
-	// ExportProject sends the project column, which receivers without it reject.
-	ExportProject bool `yaml:"export-project" json:"export-project"`
-	// QuotaSnapshots exports usage-limit snapshots next to Dataset.
+	Enabled        bool                 `yaml:"enabled" json:"enabled"`
+	URL            string               `yaml:"url" json:"url"`
+	Dataset        string               `yaml:"dataset" json:"dataset"`
+	PricesDataset  string               `yaml:"prices-dataset" json:"prices-dataset"`
+	TokenEnv       string               `yaml:"token-env" json:"token-env"`
+	ExportProject  bool                 `yaml:"export-project" json:"export-project"`
 	QuotaSnapshots QuotaSnapshotsConfig `yaml:"quota-snapshots" json:"quota-snapshots"`
 }
 
-// QuotaSnapshotsConfig controls usage-limit snapshot export.
 type QuotaSnapshotsConfig struct {
-	Enabled bool `yaml:"enabled" json:"enabled"`
-	// IntervalSeconds is the minimum gap between unchanged snapshots and the scan period.
-	IntervalSeconds int `yaml:"interval-seconds" json:"interval-seconds"`
-	// PlanPricesUSD maps a plan (or "provider:plan") to its monthly price in USD.
-	PlanPricesUSD map[string]string `yaml:"plan-prices-usd" json:"plan-prices-usd"`
+	Enabled         bool              `yaml:"enabled" json:"enabled"`
+	IntervalSeconds int               `yaml:"interval-seconds" json:"interval-seconds"`
+	PlanPricesUSD   map[string]string `yaml:"plan-prices-usd" json:"plan-prices-usd"`
 }
 
-// QuotaSnapshotInterval returns the configured interval or the 5 minute default.
 func (c QuotaSnapshotsConfig) QuotaSnapshotInterval() time.Duration {
 	if c.IntervalSeconds <= 0 {
 		return 5 * time.Minute
@@ -94,8 +87,7 @@ type AccountingOutboxConfig struct {
 	MaxEvents       int                     `yaml:"max-events" json:"max-events"`
 	RetentionHours  int                     `yaml:"retention-hours" json:"retention-hours"`
 	ShutdownSeconds int                     `yaml:"shutdown-seconds" json:"shutdown-seconds"`
-	// ProjectPaths maps a client working directory prefix to its project name.
-	ProjectPaths map[string]string `yaml:"project-paths" json:"project-paths"`
+	ProjectPaths    map[string]string       `yaml:"project-paths" json:"project-paths"`
 }
 
 func (c AccountingOutboxConfig) Defaults() AccountingOutboxConfig {

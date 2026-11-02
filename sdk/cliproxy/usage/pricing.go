@@ -18,7 +18,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// Rates are decimal currency units per token. Amounts round once, half up, to nine decimal places.
 type CostEstimate struct {
 	SchemaVersion int               `json:"schema_version"`
 	Kind          string            `json:"kind"`
@@ -76,7 +75,6 @@ func NewPriceBook(rates []config.PriceRate, aliases []config.PriceAlias, sources
 		return nil, err
 	}
 	sum := sha256.Sum256(raw)
-	// Detach the snapshot from caller-owned slices and rate pointers.
 	var copy struct {
 		Rates   []config.PriceRate
 		Aliases []config.PriceAlias
@@ -158,10 +156,6 @@ func (b *PriceBook) Estimate(event AccountingEvent) *CostEstimate {
 	return e
 }
 
-// lookup tries the model names a request is known by, most specific first, so a provider-reported
-// build name that the catalog lacks still prices as the model that was requested.
-// When nothing matches, the first candidate is returned for diagnostics.
-// The LiteLLM catalog prices models only under the underlying API provider, not the proxy's executor identifier.
 var priceProviderFallbacks = map[string]string{
 	"codex":       "openai",
 	"claude":      "anthropic",
@@ -170,9 +164,6 @@ var priceProviderFallbacks = map[string]string{
 	"kimi":        "moonshot",
 }
 
-// baseServiceTier maps reported tiers billed at the base rate to the untiered catalog entry.
-// Anthropic reports usage.speed "standard" for normal requests, while "fast" stays a separate
-// tier because it is billed at a premium the catalog import does not carry.
 func baseServiceTier(tier string) string {
 	switch tier {
 	case "", "default", "standard":
@@ -229,7 +220,6 @@ func importLiteLLM(raw []byte) ([]config.PriceRate, error) {
 		return nil, err
 	}
 	rates := []config.PriceRate{}
-	// Sort by catalog key so a snapshot has a stable identity.
 	keys := make([]string, 0, len(entries))
 	for key := range entries {
 		keys = append(keys, key)
@@ -336,7 +326,6 @@ func loadPriceBook(cfg config.PricingConfig, dataPath string) *PriceBook {
 	var rates []config.PriceRate
 	cache := filepath.Join(dataPath, catalogCacheFile)
 	if cfg.LiteLLMCatalogURL != "" {
-		// The refreshed cache is newer than a bootstrap file on disk.
 		rates = readCachedCatalog(cache)
 	}
 	if rates == nil && cfg.LiteLLMCatalogPath != "" {

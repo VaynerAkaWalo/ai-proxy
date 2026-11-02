@@ -62,7 +62,6 @@ type report struct {
 }
 
 type plan struct {
-	// existing maps Analytics keys to whether live export wrote the row.
 	existing map[string]bool
 	clients  map[string]string
 	cutoff   time.Time
@@ -82,7 +81,6 @@ func nullable(value string) any {
 	return value
 }
 
-// LiteLLM routed these models through ai-proxy's Codex executor.
 var codexProviders = map[string]bool{"openai": true, "chatgpt": true}
 
 func canonicalModel(model string) string {
@@ -117,7 +115,6 @@ func historicalRow(log spendLog, clients map[string]string) (row, *big.Rat, erro
 		return nil, nil, errors.New("unknown request status")
 	}
 	if status == "failed" {
-		// LiteLLM logs a zero spend and its own prompt estimate for failed calls, not provider usage.
 		log.Spend, log.PromptTokens, log.CompletionTokens, log.TotalTokens = nil, nil, nil, nil
 		log.CacheReadTokens, log.CacheWriteTokens, log.ReasoningTokens = nil, nil, nil
 	}
@@ -131,7 +128,6 @@ func historicalRow(log spendLog, clients map[string]string) (row, *big.Rat, erro
 		if *log.ProxySchema != 1 {
 			return nil, nil, errors.New("unknown proxy accounting schema")
 		}
-		// LiteLLM generated a session per proxy-reported call.
 		source, session = "ai_proxy", ""
 	}
 	provider := log.Provider
@@ -227,10 +223,6 @@ func stringValue(value any) string {
 	return s
 }
 
-// reprice replaces LiteLLM's spend with ai-proxy's estimate so history has a single cost kind.
-// Cache buckets LiteLLM did not record are priced as zero, which matches xAI's catalog having no
-// cache-write price, while the row itself keeps them unknown. The catalog has no reasoning rates,
-// so all output is priced at the output rate regardless of how LiteLLM split it.
 func reprice(result row, book *usage.PriceBook) (any, error) {
 	prompt, completion := result["input_tokens"].(*int64), result["output_tokens"].(*int64)
 	if book == nil || result["source"] != "litellm" || result["status"] != "succeeded" || prompt == nil || completion == nil {
@@ -270,8 +262,6 @@ func reprice(result row, book *usage.PriceBook) (any, error) {
 	return record, nil
 }
 
-// repairTotals fills the input and output totals that live export omitted before it kept them,
-// derived from the complete disjoint buckets of the same row.
 func repairTotals(snapshot row) (row, error) {
 	if snapshot["source"] != "ai_proxy" || snapshot["usage_quality"] != "complete" || snapshot["input_tokens"] != nil {
 		return nil, nil
@@ -306,7 +296,6 @@ func repairTotals(snapshot row) (row, error) {
 	}
 	repaired["input_tokens"], repaired["output_tokens"] = input, output
 	for _, name := range []string{"started_at", "completed_at"} {
-		// ClickHouse exports DateTime64(3, 'UTC') without a zone, Analytics requires one.
 		at, err := time.Parse("2006-01-02 15:04:05.999", stringValue(snapshot[name]))
 		if err != nil {
 			return nil, err
@@ -379,7 +368,6 @@ func (p plan) prepare(input string) ([]row, []any, report, error) {
 			return errors.New("duplicate source identity")
 		}
 		seen[key] = true
-		// Live rows carry facts LiteLLM never had, so even a replace keeps them.
 		if live, ok := p.existing[key]; ok && (live || !p.replace) {
 			stats.Existing++
 			return nil
@@ -564,7 +552,6 @@ func run(ctx context.Context, args []string) error {
 
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	base := strings.TrimRight(*url, "/") + "/api/datasets/"
-	// Attempts reference their prices, so prices are delivered first.
 	if err := upload(ctx, client, base+*pricesDataset+"/rows", os.Getenv(*tokenEnv), prices); err != nil {
 		return err
 	}

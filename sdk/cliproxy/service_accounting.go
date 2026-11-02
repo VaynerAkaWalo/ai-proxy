@@ -84,7 +84,6 @@ func (s *Service) stopAccountingOutbox(ctx context.Context) {
 	log.WithFields(log.Fields{"dropped_events": stats.DroppedEvents, "persistence_failures": stats.PersistenceFailures, "queue_depth": stats.QueueDepth}).Info("accounting stopped")
 }
 
-// AccountingOutboxStats exposes accounting health to embedded SDK operators.
 func (s *Service) AccountingOutboxStats() (usage.OutboxStats, error) {
 	s.accountingMu.Lock()
 	outbox := s.accountingOutbox

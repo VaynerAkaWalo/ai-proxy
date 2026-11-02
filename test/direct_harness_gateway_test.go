@@ -31,13 +31,11 @@ const (
 	gatewayAdminSecret = "harness-admin-secret"
 )
 
-// accountingMode selects how accounting is wired around an otherwise identical gateway.
 type accountingMode string
 
 const (
-	accountingDisabled accountingMode = "disabled"
-	accountingEnabled  accountingMode = "enabled"
-	// The remaining modes enable the LiteLLM exporter against a receiver with that behavior.
+	accountingDisabled       accountingMode = "disabled"
+	accountingEnabled        accountingMode = "enabled"
 	accountingLiteLLMOffline accountingMode = "litellm-offline"
 	accountingLiteLLMStalled accountingMode = "litellm-stalled"
 	accountingLiteLLMFailing accountingMode = "litellm-failing"
@@ -45,17 +43,13 @@ const (
 
 var allAccountingModes = []accountingMode{accountingDisabled, accountingEnabled, accountingLiteLLMOffline, accountingLiteLLMStalled, accountingLiteLLMFailing}
 
-// newServerMu serializes server construction because api.NewServer writes gin's package-level mode.
 var newServerMu sync.Mutex
 
-// clientKeyID mirrors the safe client identifier written to accounting events.
 func clientKeyID(key string) string {
 	sum := sha256.Sum256([]byte("client\x00" + key))
 	return hex.EncodeToString(sum[:])
 }
 
-// upstreamAccount is one fake provider credential. The fake upstream sees apiKey in the
-// Authorization or x-api-key header, which lets a fixture fail one account only.
 type upstreamAccount struct {
 	id         string
 	provider   string
@@ -66,13 +60,11 @@ type upstreamAccount struct {
 }
 
 type gatewayOptions struct {
-	mode        accountingMode
-	upstreamURL string
-	accounts    []upstreamAccount
-	// dataPath keeps the outbox across gateways to model a process restart.
-	dataPath string
-	receiver *fakeLiteLLM
-	// exportClients maps the harness client key to a LiteLLM identity so batches are exportable.
+	mode          accountingMode
+	upstreamURL   string
+	accounts      []upstreamAccount
+	dataPath      string
+	receiver      *fakeLiteLLM
 	exportClients bool
 }
 
@@ -106,8 +98,6 @@ func fixturePricing() config.PricingConfig {
 	}}
 }
 
-// newGateway starts the real API server on a loopback port. Providers are registered
-// directly with the auth manager so each fixture controls routing, priority, and cooling.
 func newGateway(t *testing.T, opts gatewayOptions) *gateway {
 	t.Helper()
 	cfg := &config.Config{SDKConfig: sdkconfig.SDKConfig{APIKeys: []string{gatewayClientKey}}}
@@ -170,7 +160,6 @@ func registerFixtureAccount(t *testing.T, manager *cliproxyauth.Manager, account
 	}
 }
 
-// attachAccounting mirrors Service.startAccountingOutbox, which is unexported.
 func (g *gateway) attachAccounting(opts gatewayOptions) {
 	t := g.t
 	if opts.mode == accountingDisabled {
@@ -217,7 +206,6 @@ func (g *gateway) attachAccounting(opts gatewayOptions) {
 	}
 }
 
-// shutdown follows Service.stopAccountingOutbox: detach ingress, stop the exporter, close the store.
 func (g *gateway) shutdown() {
 	if g.stopped {
 		return
@@ -240,8 +228,6 @@ func (g *gateway) shutdown() {
 	}
 }
 
-// accountingRecorder observes every accounting event through a legacy usage plugin, which
-// is independent of the outbox ingress under test.
 type accountingRecorder struct {
 	mu     sync.Mutex
 	events []usage.AccountingEvent
@@ -272,7 +258,6 @@ func recordAccounting(t *testing.T) *accountingRecorder {
 	return recorder
 }
 
-// waitEvents blocks until the recorder holds at least want events.
 func (r *accountingRecorder) waitEvents(t *testing.T, want int) []usage.AccountingEvent {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
@@ -290,7 +275,6 @@ func (r *accountingRecorder) waitEvents(t *testing.T, want int) []usage.Accounti
 	}
 }
 
-// tryEvents waits up to timeout for want events and returns whatever was recorded.
 func (r *accountingRecorder) tryEvents(want int, timeout time.Duration) []usage.AccountingEvent {
 	deadline := time.Now().Add(timeout)
 	for {
@@ -304,8 +288,6 @@ func (r *accountingRecorder) tryEvents(want int, timeout time.Duration) []usage.
 	}
 }
 
-// durableEvents returns the stored form of each recorded event once it is committed,
-// which is the form the exporter reads, including its price estimate.
 func (g *gateway) durableEvents(t *testing.T, events []usage.AccountingEvent) []usage.AccountingEvent {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)

@@ -173,7 +173,6 @@ type OAuthProfile struct {
 	} `json:"organization"`
 }
 
-// PlanLabel names the plan like the management panel does, or "" when unknown.
 func (p *OAuthProfile) PlanLabel() string {
 	if p == nil {
 		return ""
@@ -308,7 +307,6 @@ func (o *ClaudeAuth) FetchOAuthProfile(ctx context.Context, accessToken string) 
 	return &profile, nil
 }
 
-// FetchOAuthUsage reads the OAuth usage endpoint, optionally with manual reset grants.
 func (o *ClaudeAuth) FetchOAuthUsage(ctx context.Context, accessToken string, withResetGrants bool) ([]byte, error) {
 	endpoint := "https://api.anthropic.com/api/oauth/usage"
 	if withResetGrants {

@@ -136,7 +136,6 @@ func TestOutboxConcurrentClaim(t *testing.T) {
 }
 
 func TestOutboxVolatileWindowPressureAndShutdown(t *testing.T) {
-	// A constructed, unstarted sink makes the pre-commit window deterministic.
 	o := &Outbox{queue: make(chan []byte, 1), done: make(chan struct{}), closeDone: make(chan struct{})}
 	o.HandleAccountingEvent(testEvent("queued"))
 	o.HandleAccountingEvent(testEvent("dropped"))
@@ -153,7 +152,6 @@ func TestOutboxVolatileWindowPressureAndShutdown(t *testing.T) {
 	if o.dropped.Load() != 2 {
 		t.Fatal("closed admission not counted")
 	}
-	// No insertion has happened. Reopening an independent store recovers no queued event.
 	recovered := openTestOutbox(t, config.AccountingOutboxConfig{})
 	if _, err := recovered.Event("queued"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal(err)

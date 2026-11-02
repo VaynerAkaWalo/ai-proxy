@@ -9,17 +9,10 @@ import (
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 )
 
-// NearestResetSelector prefers the credential whose quota window resets soonest, so
-// quota that is about to expire is spent before quota that has plenty of runway.
-//
-// Reset times come from the passive quota snapshot (QuotaState.Signals). Credentials
-// without a usable future reset time are only chosen when no candidate has one, and
-// are then rotated by the fallback selector.
 type NearestResetSelector struct {
 	fallback RoundRobinSelector
 }
 
-// Pick selects the available credential with the earliest upcoming quota reset.
 func (s *NearestResetSelector) Pick(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, auths []*Auth) (*Auth, error) {
 	now := time.Now()
 	available, err := getSelectorAvailableAuths(ctx, auths, provider, model, now)
@@ -46,8 +39,6 @@ func (s *NearestResetSelector) Pick(ctx context.Context, provider, model string,
 	return s.fallback.Pick(ctx, provider, model, opts, available)
 }
 
-// nextQuotaReset returns the earliest reset time after now across all quota windows
-// observed for the credential.
 func nextQuotaReset(auth *Auth, now time.Time) (time.Time, bool) {
 	if auth == nil || len(auth.Quota.Signals) == 0 {
 		return time.Time{}, false
@@ -67,8 +58,6 @@ func nextQuotaReset(auth *Auth, now time.Time) (time.Time, bool) {
 	return earliest, !earliest.IsZero()
 }
 
-// quotaSignalResetTime decodes a single quota signal into an absolute reset time.
-// Signals that do not describe a reset are ignored.
 func quotaSignalResetTime(name, value string, observedAt time.Time) (time.Time, bool) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	value = strings.TrimSpace(value)

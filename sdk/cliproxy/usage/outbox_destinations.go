@@ -122,7 +122,6 @@ func (o *Outbox) initializeDestinations(tx *bolt.Tx) error {
 		if err := json.Unmarshal(raw, &delivery); err != nil {
 			return err
 		}
-		// Historical terminal events need a separate import, not an automatic replay.
 		if deliveryTerminal(delivery) {
 			return nil
 		}

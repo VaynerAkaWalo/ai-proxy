@@ -6,7 +6,6 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 )
 
-// ObserveUsagePayload retains only parsed token fields for a later terminal outcome.
 func (r *UsageReporter) ObserveUsagePayload(payload []byte) {
 	if r == nil {
 		return

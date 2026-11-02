@@ -36,9 +36,6 @@ func deliveryState(t *testing.T, g *gateway, id string) usage.Delivery {
 	return delivery
 }
 
-// TestAccountingReconciliationScenario drives one accounting history through a failover,
-// an interrupted stream, a process restart, a partial batch failure and a lost export
-// response, then reconciles the outbox against the receiver's spend rows and counters.
 func TestAccountingReconciliationScenario(t *testing.T) {
 	chat := contracts[0]
 	upstream := newFakeUpstream(t, func(w http.ResponseWriter, _ *http.Request, call upstreamCall) bool {
@@ -48,7 +45,6 @@ func TestAccountingReconciliationScenario(t *testing.T) {
 			w.WriteHeader(http.StatusTooManyRequests)
 			_, _ = w.Write([]byte(`{"error":{"message":"quota","type":"insufficient_quota","code":"insufficient_quota"}}`))
 		case strings.Contains(call.Body, "interrupt me"):
-			// The connection drops after partial output and before any usage chunk arrives.
 			w.Header().Set("Content-Type", "text/event-stream")
 			_, _ = fmt.Fprint(w, strings.Join(strings.SplitAfter(chat.stream.body, "\n\n")[:2], ""))
 			w.(http.Flusher).Flush()
@@ -66,7 +62,6 @@ func TestAccountingReconciliationScenario(t *testing.T) {
 	}
 	recorder := recordAccounting(t)
 
-	// Phase 1: accounting accepts events locally while no exporter is running.
 	first := newGateway(t, gatewayOptions{mode: accountingEnabled, upstreamURL: upstream.server.URL, accounts: accounts})
 	dataPath := first.dataPath
 
@@ -104,7 +99,6 @@ func TestAccountingReconciliationScenario(t *testing.T) {
 	}
 	first.shutdown()
 
-	// Phase 2: restart on the same data path with an exporter whose callbacks partly fail.
 	receiver := newFakeLiteLLM(t, receiverPartialFailure)
 	failingID := successes[1].ExecutionID
 	receiver.failIDs[failingID] = true
@@ -123,8 +117,6 @@ func TestAccountingReconciliationScenario(t *testing.T) {
 		return true
 	})
 
-	// Expected delivery attempts: one for a batch accepted first time, three for the record
-	// whose callback failed, whose response was then lost, and which finally succeeded.
 	for _, event := range successes {
 		want := uint64(1)
 		if event.ExecutionID == failingID {
@@ -134,7 +126,6 @@ func TestAccountingReconciliationScenario(t *testing.T) {
 			t.Errorf("event %s delivery attempts = %d, want %d", event.ExecutionID, got.Attempts, want)
 		}
 	}
-	// Failures are never exported. They are rejected locally with a single claim.
 	for _, event := range unexportable {
 		if got := deliveryState(t, second, event.ExecutionID); got.State != usage.DeliveryRejected || got.Attempts != 1 {
 			t.Errorf("non-success attempt %s delivery = %+v, want rejected after one claim", event.ExecutionID, got)
@@ -156,7 +147,6 @@ func TestAccountingReconciliationScenario(t *testing.T) {
 		t.Errorf("exported records contain credential material: %v", leaked)
 	}
 
-	// Reconcile priced tokens and spend: outbox totals against unique spend rows.
 	var wantPrompt, wantCompletion int64
 	var wantSpend float64
 	for _, event := range successes {
@@ -189,8 +179,6 @@ func TestAccountingReconciliationScenario(t *testing.T) {
 		t.Errorf("spend-log rows = %d, want %d unique rows despite the replay", rows, len(successes))
 	}
 
-	// Aggregates are where at-least-once delivery shows. The replayed record is counted
-	// twice, so counters exceed the unique rows by exactly the replayed callbacks.
 	identity := "key/" + fixtureKeyHash()
 	aggregate := receiver.aggregateSnapshot()[identity]
 	replays := receiver.processedCount() - receiver.rowCount()

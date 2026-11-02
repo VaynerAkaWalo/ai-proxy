@@ -38,7 +38,6 @@ func setClaudeRateLimitResetHeaders(headers http.Header, status int, now time.Ti
 		resetSeconds++
 	}
 
-	// Claude SDK usage-limit events read unified reset headers rather than Retry-After.
 	headers.Set("Anthropic-Ratelimit-Unified-Reset", strconv.FormatInt(resetSeconds, 10))
 	if headers.Get("Anthropic-Ratelimit-Unified-Status") == "" {
 		headers.Set("Anthropic-Ratelimit-Unified-Status", "rejected")

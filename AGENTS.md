@@ -43,9 +43,8 @@ go build -o test-output ./cmd/server && rm test-output # Verify compile (REQUIRE
 
 ## Code Conventions
 - Keep changes small and simple (KISS)
-- Comments in English only
-- Comment only what the code can't say (why, gotchas, external quirks). No comments that restate code, and don't mirror the comment density of nearby code
-- If editing code that already contains non-English comments, translate them to English (don’t add new non-English comments)
+- Express intent through names, types, structure and file location. Never write comments in code. If code needs one to be understood, restructure it, and if the reason lives outside the code, like a business rule or a workaround for an external bug, write a test whose name states that behavior. This rule wins over comments already in the codebase
+- Exceptions: tooling directives (`//go:build`, `//go:embed`, `//nolint`, swagger annotations). Code that originates from upstream (router-for-me/CLIProxyAPI) or vendored SDKs keeps its comments untouched, so merges stay clean
 - For user-visible strings, keep the existing language used in that file/area
 - New Markdown docs should be in English unless the file is explicitly language-specific (e.g. `README_CN.md`)
 - As a rule, do not make standalone changes to `internal/translator/`. You may modify it only as part of broader changes elsewhere.

@@ -1,5 +1,3 @@
-// Package quotaprobe reads plan, usage windows and manual resets from the
-// endpoints the management panel uses.
 package quotaprobe
 
 import (
@@ -33,7 +31,6 @@ const (
 	xaiClientVersion    = "1.0.46"
 )
 
-// Result is what one probe learned about a credential.
 type Result struct {
 	ObservedAt       time.Time
 	Plan             string
@@ -41,7 +38,6 @@ type Result struct {
 	Windows          []coreauth.QuotaWindowUsage
 }
 
-// Supported reports whether the provider has a probe.
 func Supported(provider string) bool {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "claude", "codex", "xai":
@@ -50,8 +46,6 @@ func Supported(provider string) bool {
 	return false
 }
 
-// Probe queries the upstream for one credential. It sends only the credential's
-// own token to its own provider.
 func Probe(ctx context.Context, cfg *config.Config, auth *coreauth.Auth) (*Result, error) {
 	if auth == nil {
 		return nil, fmt.Errorf("quota probe: auth is nil")
@@ -73,15 +67,12 @@ func Probe(ctx context.Context, cfg *config.Config, auth *coreauth.Auth) (*Resul
 	return nil, fmt.Errorf("quota probe: unsupported provider")
 }
 
-// ownHosts are the base_url hosts a credential's token may be sent to.
 var ownHosts = map[string][]string{
 	"claude": {"api.anthropic.com"},
 	"codex":  {"chatgpt.com", "chat.openai.com"},
 	"xai":    {"api.x.ai", "cli-chat-proxy.grok.com"},
 }
 
-// accessToken returns the subscription OAuth token, or "" for API keys and
-// third-party base_urls so their secrets never reach the provider's endpoints.
 func accessToken(auth *coreauth.Auth) string {
 	provider := strings.ToLower(strings.TrimSpace(auth.Provider))
 	if auth.Attributes != nil && strings.TrimSpace(auth.Attributes["api_key"]) != "" {
@@ -224,7 +215,6 @@ func probeXAI(ctx context.Context, cfg *config.Config, auth *coreauth.Auth, toke
 	if !percent.Exists() {
 		percent = billing.Get("credit_usage_percent")
 	}
-	// Only the weekly credit period is a usage window; monthly spend is not.
 	periodWeekly := !period.Exists() || strings.Contains(strings.ToLower(period.Get("type").String()), "weekly")
 	if value, ok := number(percent); ok && periodWeekly {
 		result.Windows = append(result.Windows, coreauth.QuotaWindowUsage{

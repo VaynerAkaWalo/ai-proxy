@@ -31,7 +31,6 @@ type AnalyticsExporter struct {
 }
 
 func NewAnalyticsExporter(outbox *Outbox, cfg config.AnalyticsExporterConfig) *AnalyticsExporter {
-	// A redirect must not forward credentials or change ingestion POST semantics.
 	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: (&net.Dialer{}).DialContext, ForceAttemptHTTP2: true}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	return &AnalyticsExporter{deliveries: outbox.deliveriesFor("analytics"), outbox: outbox, cfg: cfg, client: client, token: os.Getenv(cfg.TokenEnv), status: "disabled"}
 }
@@ -104,7 +103,6 @@ func (e *AnalyticsExporter) Stop(ctx context.Context) error {
 	}
 }
 
-// ExportOnce retries uncertain outcomes safely because Analytics replaces rows by their stable attempt key.
 func (e *AnalyticsExporter) ExportOnce(ctx context.Context) error {
 	e.exportMu.Lock()
 	defer e.exportMu.Unlock()

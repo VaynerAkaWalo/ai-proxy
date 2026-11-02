@@ -74,7 +74,6 @@ type Config struct {
 	// UsageStatisticsEnabled toggles in-memory usage aggregation; when false, usage data is discarded.
 	AccountingOutbox AccountingOutboxConfig `yaml:"accounting-outbox" json:"accounting-outbox"`
 
-	// Loki ships warnings, errors and startup logs to Grafana Cloud.
 	Loki LokiConfig `yaml:"loki" json:"loki"`
 
 	UsageStatisticsEnabled bool `yaml:"usage-statistics-enabled" json:"usage-statistics-enabled"`

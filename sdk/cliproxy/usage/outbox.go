@@ -32,8 +32,6 @@ const (
 	DeliveryRejected     DeliveryState = "permanently_rejected"
 )
 
-// Delivery is separate from the immutable destination-independent event.
-// Claim commits ambiguous before external I/O, so a crash cannot imply a safe retry.
 type Delivery struct {
 	State         DeliveryState `json:"state"`
 	Attempts      uint64        `json:"attempts"`
@@ -120,7 +118,6 @@ func OpenOutbox(cfg config.AccountingOutboxConfig) (*Outbox, error) {
 }
 
 func (o *Outbox) requeueAmbiguousAnalytics(tx *bolt.Tx) error {
-	// Only the Analytics receiver replaces duplicate attempts without incrementing external budget counters.
 	bucket := o.deliveriesFor("analytics").bucket
 	cursor := tx.Bucket(bucket).Cursor()
 	for key, raw := cursor.First(); key != nil; key, raw = cursor.Next() {
@@ -146,7 +143,6 @@ func (o *Outbox) requeueAmbiguousAnalytics(tx *bolt.Tx) error {
 	return nil
 }
 
-// HandleAccountingEvent only queues a bounded serialized snapshot. It is not a durable acknowledgement.
 func (o *Outbox) HandleAccountingEvent(event AccountingEvent) {
 	if o.unavailable {
 		o.dropped.Add(1)
@@ -210,7 +206,6 @@ func (o *Outbox) run() {
 	}
 }
 
-// Insert returns success only after bbolt's transaction and fsync complete.
 func (o *Outbox) Insert(event AccountingEvent) error {
 	if event.Estimate == nil {
 		event.Estimate = o.prices.Load().Estimate(event)
@@ -261,7 +256,6 @@ func (o *Outbox) insert(raw []byte) error {
 	})
 }
 
-// Reserve space for copy-on-write pages and freelist growth. Refuse admission rather than evict pending events.
 func (o *Outbox) checkDisk(tx *bolt.Tx) error {
 	info, err := os.Stat(o.db.Path())
 	if err != nil {
@@ -310,7 +304,6 @@ func (o *Outbox) repriceUnpricedEvent(id string) (AccountingEvent, error) {
 				if err := json.Unmarshal(raw, &delivery); err != nil {
 					return err
 				}
-				// An Analytics request in flight must finish before its payload can change.
 				if delivery.State == DeliveryAmbiguous {
 					return nil
 				}
@@ -366,7 +359,6 @@ func readDeliveryFrom(tx *bolt.Tx, bucket []byte, id string, delivery *Delivery)
 	return json.Unmarshal(raw, delivery)
 }
 
-// Claim provides transactional single-worker ownership. Ambiguous claims require explicit resolution, never automatic retry.
 func (o *Outbox) Claim(id string) (bool, error) {
 	return o.claim(deliveriesBucket, id)
 }
@@ -400,7 +392,6 @@ func (o *Outbox) claim(bucket []byte, id string) (bool, error) {
 	return claimed, err
 }
 
-// Resolve records an exporter outcome. Retryable must mean the exporter knows the event was not accepted.
 func (o *Outbox) Resolve(id string, attempt uint64, state DeliveryState, next time.Time) error {
 	return o.resolve(deliveriesBucket, id, attempt, state, next)
 }
@@ -511,8 +502,6 @@ func (o *Outbox) Stats() (OutboxStats, error) {
 	return stats, err
 }
 
-// Close stops admission and bounds the caller's wait. A blocked filesystem operation
-// cannot be cancelled safely, so ownership remains held until the worker finishes.
 func (o *Outbox) Close(ctx context.Context) error {
 	if o.stopRefresh != nil {
 		o.stopRefresh()
@@ -567,7 +556,6 @@ func boundedAccountingEvent(event AccountingEvent) bool {
 	return true
 }
 
-// UnavailableOutbox counts losses after a startup storage failure without blocking inference.
 func UnavailableOutbox() *Outbox {
 	o := &Outbox{unavailable: true, queue: make(chan []byte), done: make(chan struct{}), closeDone: make(chan struct{})}
 	o.failures.Add(1)
@@ -680,7 +668,6 @@ func validateOutbox(tx *bolt.Tx) error {
 	return nil
 }
 
-// ReadyIDs selects bounded due deliveries without changing their state.
 func (o *Outbox) ReadyIDs(limit int) ([]string, error) {
 	return o.readyIDs(deliveriesBucket, limit)
 }

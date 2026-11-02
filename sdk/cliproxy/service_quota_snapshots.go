@@ -14,9 +14,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// quotaSnapshotSampler exports passive quota observations without calling upstream.
-// A window is sent when it changed or the interval passed. observed_at is the
-// upstream time, so idle accounts don't get fresh timestamps.
+const unknownManualResets = -1
+
 type quotaSnapshotSampler struct {
 	outbox  *usage.Outbox
 	manager *coreauth.Manager
@@ -45,11 +44,11 @@ const (
 )
 
 type quotaSnapshotMark struct {
-	utilization string
-	resetsAt    time.Time
-	observedAt  time.Time
-	manual      int    // -1 when unknown
-	metadata    string // plan, price and manual resets
+	utilization  string
+	resetsAt     time.Time
+	observedAt   time.Time
+	manualResets int
+	metadata     string
 }
 
 func newQuotaSnapshotSampler(outbox *usage.Outbox, manager *coreauth.Manager, cfg config.QuotaSnapshotsConfig, current func() *config.Config) *quotaSnapshotSampler {
@@ -91,8 +90,6 @@ func (q *quotaSnapshotSampler) Stop(ctx context.Context) {
 	}
 }
 
-// notify never blocks the request path. A dropped notification is recovered by
-// the next periodic scan, which reads the same observation from the manager.
 func (q *quotaSnapshotSampler) notify(auth *coreauth.Auth) {
 	select {
 	case q.changed <- auth:
@@ -106,8 +103,6 @@ func (q *quotaSnapshotSampler) scan() {
 	}
 }
 
-// probeLoop refreshes plan, manual resets and xAI usage windows, spaced per
-// credential with backoff.
 func (q *quotaSnapshotSampler) probeLoop(ctx context.Context) {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
@@ -172,7 +167,6 @@ func (q *quotaSnapshotSampler) observe(auth *coreauth.Auth) {
 		probe = state.result
 	}
 
-	// Probe windows are used when there is no header window or the probe is newer.
 	byWindow := map[string]quotaWindowObservation{}
 	var order []string
 	if !auth.Quota.ObservedAt.IsZero() {
@@ -206,7 +200,7 @@ func (q *quotaSnapshotSampler) observe(auth *coreauth.Auth) {
 		}
 		manual = probe.ManualResetsLeft
 	}
-	manualMark := -1
+	manualMark := unknownManualResets
 	if manual != nil {
 		manualMark = *manual
 	}
@@ -227,11 +221,9 @@ func (q *quotaSnapshotSampler) observe(auth *coreauth.Auth) {
 		observation := byWindow[name]
 		window, observedAt := observation.usage, observation.observedAt
 		key := auth.ID + "|" + window.Window
-		mark := quotaSnapshotMark{utilization: formatQuotaUtilization(window.Utilization), resetsAt: window.ResetsAt.Truncate(time.Second), observedAt: observedAt, manual: manualMark, metadata: metadata}
+		mark := quotaSnapshotMark{utilization: formatQuotaUtilization(window.Utilization), resetsAt: window.ResetsAt.Truncate(time.Second), observedAt: observedAt, manualResets: manualMark, metadata: metadata}
 		previous, seen := q.last[key]
 		if seen {
-			// A probe can learn plan, price or manual resets without a newer usage
-			// observation; such a change is exported with the probe time.
 			metadataChanged := previous.metadata != mark.metadata
 			if metadataChanged && probe != nil && probe.ObservedAt.After(observedAt) {
 				observedAt = probe.ObservedAt
@@ -265,7 +257,6 @@ func (q *quotaSnapshotSampler) observe(auth *coreauth.Auth) {
 		return
 	}
 	if err := q.outbox.EnqueueQuotaSnapshots(rows); err != nil {
-		// Marks stay untouched so the next scan retries; nothing is dropped silently.
 		if q.failures++; q.failures == 1 || q.failures%100 == 0 {
 			log.WithError(err).WithField("failures", q.failures).Warn("quota snapshot persistence failed, will retry")
 		}
@@ -277,7 +268,6 @@ func (q *quotaSnapshotSampler) observe(auth *coreauth.Auth) {
 	}
 }
 
-// planPrice looks up "provider:plan" first, then "plan", case-insensitively.
 func (q *quotaSnapshotSampler) planPrice(provider, plan string) *string {
 	for _, key := range []string{provider + ":" + plan, plan} {
 		for name, price := range q.cfg.PlanPricesUSD {
@@ -299,8 +289,6 @@ func formatQuotaUtilization(value float64) string {
 	return text
 }
 
-// quotaResetsClose tolerates the drift of reset times derived from
-// reset-after-seconds headers, which shift with every observation.
 func quotaResetsClose(a, b time.Time) bool {
 	if a.IsZero() || b.IsZero() {
 		return a.IsZero() && b.IsZero()
