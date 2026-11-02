@@ -15,14 +15,11 @@ const (
 	quotaSnapshotsBatchSize   = 256
 )
 
-// QuotaSnapshotsDataset puts snapshots under the attempts dataset's owner.
 func QuotaSnapshotsDataset(attemptsDataset string) string {
 	owner, _, _ := strings.Cut(attemptsDataset, "/")
 	return owner + "/" + quotaSnapshotsDatasetName
 }
 
-// exportQuotaSnapshots deletes rows only after the receiver acks the exact count.
-// Analytics replaces rows by key, so resending is safe.
 func (e *AnalyticsExporter) exportQuotaSnapshots(ctx context.Context) error {
 	keys, rows, err := e.outbox.pendingQuotaSnapshots(quotaSnapshotsBatchSize)
 	if err != nil || len(rows) == 0 {
@@ -46,7 +43,6 @@ func (e *AnalyticsExporter) exportQuotaSnapshots(ctx context.Context) error {
 	return nil
 }
 
-// registerQuotaDataset creates the dataset; 409 means it already exists.
 func (e *AnalyticsExporter) registerQuotaDataset(ctx context.Context) bool {
 	payload, err := json.Marshal(map[string]string{"id": QuotaSnapshotsDataset(e.cfg.Dataset), "implements": quotaSnapshotsImplements})
 	if err != nil {

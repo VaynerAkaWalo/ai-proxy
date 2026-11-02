@@ -12,8 +12,6 @@ import (
 	"time"
 )
 
-// Text-only replies for the three live harness checks. The fixture upstream is local, so
-// these checks cover each CLI's protocol handling of this gateway, not any provider.
 var (
 	liveChatStream = sse(
 		`{"id":"chatcmpl-live","object":"chat.completion.chunk","created":1700000000,"model":"grok-fixture-chat","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}`,
@@ -41,8 +39,6 @@ var (
 	liveMessagesJSON = `{"id":"msg_live","type":"message","role":"assistant","model":"claude-sonnet-fixture","content":[{"type":"text","text":"pong from fixture"}],"stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":11,"output_tokens":6}}`
 )
 
-// TestLiveHarnessCLIs runs the installed Claude Code, Codex and Grok CLIs against the gateway.
-// It is opt-in because it depends on locally installed, version-specific clients.
 func TestLiveHarnessCLIs(t *testing.T) {
 	if os.Getenv("AI_PROXY_LIVE_HARNESS") != "1" {
 		t.Skip("set AI_PROXY_LIVE_HARNESS=1 to run the installed harness CLIs against the gateway")

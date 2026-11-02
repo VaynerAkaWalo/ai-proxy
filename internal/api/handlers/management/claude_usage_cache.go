@@ -57,7 +57,6 @@ func claudeUsageCacheKey(req *http.Request, auth *coreauth.Auth) (string, bool) 
 	if !strings.HasPrefix(authorization, "Bearer ") || strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer ")) == "" {
 		return "", false
 	}
-	// Different clients use different user agents for the same account's usage.
 	identity, _ := json.Marshal([]string{auth.ID, authorization, req.Header.Get("Anthropic-Beta"), req.Header.Get("Anthropic-Organization-Id"), req.Header.Get("Anthropic-Version")})
 	sum := sha256.Sum256(identity)
 	return hex.EncodeToString(sum[:]), true

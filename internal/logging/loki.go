@@ -34,8 +34,6 @@ type lokiLine struct {
 	text  string
 }
 
-// lokiHook ships warnings, errors and startup logs to Loki without ever blocking the caller.
-// Failures are reported on stderr only, since logging them through logrus would feed back into this hook.
 type lokiHook struct {
 	cfg      config.LokiConfig
 	token    string
@@ -189,7 +187,6 @@ var (
 	lokiConf config.LokiConfig
 )
 
-// configureLoki starts, replaces or stops the Loki hook so it matches cfg.
 func configureLoki(cfg config.LokiConfig) {
 	lokiMu.Lock()
 	defer lokiMu.Unlock()

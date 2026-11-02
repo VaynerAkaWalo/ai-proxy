@@ -7,17 +7,13 @@ import (
 	"time"
 )
 
-// Quota window names understood by the analytics quota snapshot dataset.
 const (
 	QuotaWindow5h     = "5h"
 	QuotaWindowWeekly = "weekly"
 )
 
-// QuotaObserver is called after a response updates a credential's quota observation.
 type QuotaObserver func(*Auth)
 
-// SetQuotaObserver registers the quota callback; nil removes it. It runs on the
-// result-reporting goroutine and must not block.
 func (m *Manager) SetQuotaObserver(observer QuotaObserver) {
 	if m == nil {
 		return
@@ -35,17 +31,12 @@ func (m *Manager) notifyQuotaObserved(auth *Auth) {
 	}
 }
 
-// QuotaWindowUsage is one usage window from a credential's quota observation.
 type QuotaWindowUsage struct {
-	Window string
-	// Utilization is the used fraction in [0, 1].
+	Window      string
 	Utilization float64
-	// ResetsAt is zero when the upstream did not report a reset time.
-	ResetsAt time.Time
+	ResetsAt    time.Time
 }
 
-// QuotaWindows decodes the 5h and weekly windows from the existing observation
-// without calling upstream.
 func (a *Auth) QuotaWindows() []QuotaWindowUsage {
 	if a == nil || len(a.Quota.Signals) == 0 {
 		return nil
@@ -106,7 +97,6 @@ func (a *Auth) QuotaWindows() []QuotaWindowUsage {
 	return nil
 }
 
-// QuotaPlan returns the credential's known plan, or "".
 func (a *Auth) QuotaPlan() string {
 	if a == nil {
 		return ""
@@ -131,7 +121,6 @@ func (a *Auth) QuotaPlan() string {
 	return ""
 }
 
-// DisplayQuotaPlan capitalizes lower case plan names ("pro" becomes "Pro").
 func DisplayQuotaPlan(plan string) string {
 	plan = strings.TrimSpace(plan)
 	if plan == "" || plan != strings.ToLower(plan) || strings.ContainsAny(plan, " _-:") {

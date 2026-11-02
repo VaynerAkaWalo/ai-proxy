@@ -103,7 +103,6 @@ func TestAccountingCancelledStreamIsInterrupted(t *testing.T) {
 			if event.Status != "interrupted" {
 				t.Fatalf("a cancelled stream must be one interrupted event, got %+v", event)
 			}
-			// Only Claude reports usage before the cancellation, and only that usage is kept.
 			if transport == "claude-sse" {
 				if event.Tokens == nil || event.Tokens.Input != 1 || event.Tokens.Output != 1 {
 					t.Fatalf("reported usage was not kept: %+v", event.Tokens)

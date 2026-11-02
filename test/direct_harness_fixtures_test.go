@@ -20,7 +20,6 @@ import (
 
 var upstreamWebsocketUpgrader = websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 
-// contract describes one harness-facing protocol and how the fake upstream answers it.
 type contract struct {
 	name      string
 	harness   string
@@ -34,7 +33,6 @@ type contract struct {
 	usage     usageExpectation
 }
 
-// usageExpectation is the usage the fixture reports, as the accounting event must record it.
 type usageExpectation struct{ input, output, total int64 }
 
 type upstreamReply struct {
@@ -116,7 +114,6 @@ func namedSSE(pairs ...string) string {
 	return out.String()
 }
 
-// upstreamCall is what the fake provider received from the gateway.
 type upstreamCall struct {
 	Account string
 	Path    string
@@ -124,13 +121,11 @@ type upstreamCall struct {
 	Header  http.Header
 }
 
-// fakeUpstream is a provider fixture. Behavior is replaceable per test through handle.
 type fakeUpstream struct {
-	server *httptest.Server
-	mu     sync.Mutex
-	calls  []upstreamCall
-	handle func(w http.ResponseWriter, r *http.Request, call upstreamCall) bool
-	// canceled receives the account name whenever the gateway abandons an upstream request.
+	server   *httptest.Server
+	mu       sync.Mutex
+	calls    []upstreamCall
+	handle   func(w http.ResponseWriter, r *http.Request, call upstreamCall) bool
 	canceled chan string
 }
 
@@ -160,7 +155,6 @@ func newFakeUpstream(t *testing.T, handle func(w http.ResponseWriter, r *http.Re
 	return f
 }
 
-// serveWebsocket answers one response.create with the Responses fixture events as text frames.
 func (f *fakeUpstream) serveWebsocket(w http.ResponseWriter, r *http.Request, call upstreamCall) {
 	conn, err := upstreamWebsocketUpgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -182,7 +176,6 @@ func (f *fakeUpstream) serveWebsocket(w http.ResponseWriter, r *http.Request, ca
 			return
 		}
 	}
-	// A real provider keeps the session open for the next turn until the client leaves.
 	for {
 		if _, _, err := conn.ReadMessage(); err != nil {
 			return
@@ -215,7 +208,6 @@ func (f *fakeUpstream) snapshot() []upstreamCall {
 	return append([]upstreamCall(nil), f.calls...)
 }
 
-// holdStream sends head, flushes, then blocks until the gateway abandons the request.
 func (f *fakeUpstream) holdStream(w http.ResponseWriter, r *http.Request, call upstreamCall, contentType, head string) {
 	w.Header().Set("Content-Type", contentType)
 	_, _ = io.WriteString(w, head)
@@ -226,12 +218,10 @@ func (f *fakeUpstream) holdStream(w http.ResponseWriter, r *http.Request, call u
 	f.canceled <- call.Account
 }
 
-// observed is everything a harness client could see from one request.
 type observed struct {
 	Status int
 	Header http.Header
 	Body   string
-	// Chunks counts the body reads that returned data, as a coarse streaming-shape check.
 	Chunks int
 }
 
@@ -240,7 +230,6 @@ var (
 	volatileHeader = map[string]bool{"Date": true, "Content-Length": true, "X-Request-Id": true, "X-Cpa-Trace-Id": true}
 )
 
-// shape strips only values that legitimately vary per request.
 func (o observed) shape() string {
 	names := make([]string, 0, len(o.Header))
 	for name, values := range o.Header {
@@ -286,7 +275,6 @@ func post(t *testing.T, ctx context.Context, url, body string, headers map[strin
 	return observed{Status: resp.StatusCode, Header: resp.Header.Clone(), Body: buf.String(), Chunks: chunks}
 }
 
-// readResponsesWebsocket sends one response.create and collects frames through the terminal event.
 func readResponsesWebsocket(t *testing.T, gatewayURL, create string) []string {
 	t.Helper()
 	url := "ws" + strings.TrimPrefix(gatewayURL, "http") + "/v1/responses"

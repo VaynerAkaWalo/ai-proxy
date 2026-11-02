@@ -40,7 +40,6 @@ type LiteLLMExporter struct {
 }
 
 func NewLiteLLMExporter(outbox *Outbox, cfg config.LiteLLMExporterConfig) *LiteLLMExporter {
-	// Redirects could forward the admin credential or change POST semantics.
 	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: (&net.Dialer{}).DialContext, ForceAttemptHTTP2: true}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	return &LiteLLMExporter{deliveries: outbox.deliveriesFor("litellm"), outbox: outbox, cfg: cfg, client: client, key: os.Getenv(cfg.AdminKeyEnv), status: "disabled"}
 }
@@ -145,8 +144,6 @@ func successPayload(event AccountingEvent, identity config.LiteLLMIdentity) (cal
 	return callbackRecord{Status: "success", Payload: payload}, nil
 }
 
-// ExportOnce replays pending successful events through LiteLLM's stock callback route.
-// Delivery is at-least-once: spend-log rows deduplicate by ID, aggregate counters may double count a retry.
 func (e *LiteLLMExporter) ExportOnce(ctx context.Context) error {
 	if !e.cfg.Enabled {
 		return nil
@@ -183,7 +180,6 @@ func (e *LiteLLMExporter) ExportOnce(ctx context.Context) error {
 			return err
 		}
 		if event.Status != "succeeded" {
-			// Stock LiteLLM drops replayed failures, so there is nothing it could record.
 			if err := e.deliveries.Resolve(id, delivery.Attempts, DeliveryRejected, time.Time{}); err != nil {
 				return err
 			}
@@ -193,7 +189,6 @@ func (e *LiteLLMExporter) ExportOnce(ctx context.Context) error {
 			e.setStatus("mapping_required: verify client identity, complete usage and USD pricing")
 			_, mapped := e.cfg.Clients[event.ClientKeyID]
 			log.Warnf("LiteLLM export held for event %s (provider=%s model=%s response_model=%q tier=%q priced_as=%s client_mapped=%t estimate=%s missing=%v): %v", event.ExecutionID, event.Provider, event.ExecutedModel, event.ResponseModel, event.ReportedServiceTier, estimateLookup(event.Estimate), mapped, estimateStatus(event.Estimate), estimateMissing(event.Estimate), errPayload)
-			// No request has been sent. Retain the event for configuration repair.
 			if err := e.deliveries.Resolve(id, delivery.Attempts, DeliveryRetryable, e.outbox.now().Add(time.Hour)); err != nil {
 				return err
 			}
@@ -284,7 +279,6 @@ func estimateMissing(estimate *CostEstimate) []string {
 	return estimate.Missing
 }
 
-// applyCallbackResult downgrades the outcomes of records LiteLLM reports as failed.
 func (e *LiteLLMExporter) applyCallbackResult(body io.Reader, outcomes []DeliveryState) {
 	var result struct {
 		Processed int `json:"processed"`

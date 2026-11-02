@@ -11,7 +11,6 @@ import (
 
 const AccountingEventSchemaVersion = 1
 
-// AccountingEvent is the destination-independent, credential-safe attempt contract.
 type AccountingEvent struct {
 	Estimate             *CostEstimate     `json:"estimate,omitempty"`
 	SchemaVersion        int               `json:"schema_version"`
@@ -53,12 +52,10 @@ type AccountingTokens struct {
 	Evidence      map[string]int64 `json:"evidence,omitempty"`
 }
 
-// AccountingSink receives only the safe event, never the source record or request context.
 type AccountingSink interface{ HandleAccountingEvent(AccountingEvent) }
 
 type accountingPlugin struct{ sink AccountingSink }
 
-// RegisterAccountingSink enables optional accounting independently of usage statistics.
 func RegisterAccountingSink(name string, sink AccountingSink) {
 	if sink != nil {
 		RegisterNamedPlugin("accounting:"+name, &accountingPlugin{sink: sink})
@@ -141,8 +138,6 @@ func NewAccountingEvent(ctx context.Context, record Record) AccountingEvent {
 	return event
 }
 
-// AccountingAccountID returns the account_id exported for an auth ID, so other
-// exports can reference the same upstream account as attempts.
 func AccountingAccountID(authID string) string { return accountingIdentifier("account", authID) }
 
 func accountingIdentifier(kind, value string) string {

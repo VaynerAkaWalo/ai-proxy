@@ -12,8 +12,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// quotaFixture is a controlled provider quota rejection. retryAfter and body carry the
-// provider's own reset information, and errorType is the value the harness keys on.
 type quotaFixture struct {
 	contract    contract
 	errorType   string
@@ -33,7 +31,6 @@ func quotaFixtures(reset string) []quotaFixture {
 	}
 }
 
-// quotaUpstream rejects every request until recover is set, then serves the contract fixture.
 func quotaUpstream(t *testing.T, f quotaFixture, recovered *atomic.Bool) *fakeUpstream {
 	t.Helper()
 	return newFakeUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ upstreamCall) bool {
@@ -60,9 +57,6 @@ func retryAfterSeconds(t *testing.T, got observed) int {
 	return seconds
 }
 
-// TestQuotaExhaustionIsIndependentOfAccounting exercises provider quota rejections. The
-// outcome must be the provider's own signal, must not depend on accounting state, and must
-// not consult accounting costs as if they were quota.
 func TestQuotaExhaustionIsIndependentOfAccounting(t *testing.T) {
 	const reset = 3600
 	for _, f := range quotaFixtures(strconv.Itoa(reset)) {
@@ -80,7 +74,6 @@ func TestQuotaExhaustionIsIndependentOfAccounting(t *testing.T) {
 				if got := gjson.Get(first.Body, "error.type").String(); got != f.errorType {
 					t.Errorf("%s: error type = %q, want the provider's %q: %s", mode, got, f.errorType, first.Body)
 				}
-				// A provider that sends Retry-After has it forwarded verbatim on the first rejection too.
 				if got := first.Header.Get("Retry-After"); got != f.retryAfter {
 					t.Errorf("%s: first rejection Retry-After = %q, want the provider's %q", mode, got, f.retryAfter)
 				}
@@ -93,7 +86,6 @@ func TestQuotaExhaustionIsIndependentOfAccounting(t *testing.T) {
 					t.Errorf("%s changed the quota response\nwant: %s\n got: %s", mode, firstDisabled, first.shape())
 				}
 
-				// The next request is answered from the cooldown without another upstream attempt.
 				second := post(t, context.Background(), g.URL+f.contract.path, f.contract.request(false), nil)
 				if second.Status != http.StatusTooManyRequests {
 					t.Errorf("%s: cooling request status = %d, want 429", mode, second.Status)
@@ -101,7 +93,6 @@ func TestQuotaExhaustionIsIndependentOfAccounting(t *testing.T) {
 				if len(upstream.snapshot()) != 1 {
 					t.Errorf("%s: upstream attempts = %d, want 1 while cooling", mode, len(upstream.snapshot()))
 				}
-				// Claude adds up to 30s of jitter after the provider's reset.
 				if seconds := retryAfterSeconds(t, second); seconds < reset-5 || seconds > reset+31 {
 					t.Errorf("%s: Retry-After = %ds, want the provider's %ds reset (plus Claude jitter)", mode, seconds, reset)
 				}
@@ -124,8 +115,6 @@ func TestQuotaExhaustionIsIndependentOfAccounting(t *testing.T) {
 	}
 }
 
-// TestQuotaWithoutProviderResetDoesNotInventOne checks that a rejection with no reset
-// information is passed through without a fabricated reset or Retry-After on that response.
 func TestQuotaWithoutProviderResetDoesNotInventOne(t *testing.T) {
 	for _, f := range quotaFixtures("0") {
 		t.Run(f.contract.harness, func(t *testing.T) {
@@ -142,9 +131,6 @@ func TestQuotaWithoutProviderResetDoesNotInventOne(t *testing.T) {
 	}
 }
 
-// TestQuotaRecoversAfterProviderReset waits out the shortest cooldown the gateway applies
-// and verifies exactly one probe reaches the provider, which then succeeds. The gateway floors
-// provider hints at 10s and adds up to 30s of Claude jitter, so this takes real time.
 func TestQuotaRecoversAfterProviderReset(t *testing.T) {
 	if testing.Short() {
 		t.Skip("waits for the gateway's minimum quota cooldown")

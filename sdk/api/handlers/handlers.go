@@ -318,7 +318,7 @@ func extractSessionIDsFromRequest(request *http.Request) (string, string) {
 }
 
 // EnrichContextWithSessionHierarchy extracts canonical session and parent session identities
-// and the accounting project from headers, payload, and metadata and records them in ClientRequestMetadata.
+// from headers, payload, and metadata and records them in ClientRequestMetadata.
 func EnrichContextWithSessionHierarchy(ctx context.Context, headers http.Header, payload []byte, metadata map[string]any) context.Context {
 	ctx = enrichContextWithProject(ctx, payload)
 

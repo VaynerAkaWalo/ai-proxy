@@ -232,3 +232,27 @@ func TestLiteLLMBatchLimit(t *testing.T) {
 		t.Fatal(batches)
 	}
 }
+
+func TestLiteLLMRefusesRedirectsWithoutForwardingAdminKey(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("export followed a redirect")
+	}))
+	defer target.Close()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
+	}))
+	defer server.Close()
+	t.Setenv("TEST_LITELLM_ADMIN", "test-admin")
+	o := openTestOutbox(t, config.AccountingOutboxConfig{})
+	if err := o.Insert(exportEvent("redirect")); err != nil {
+		t.Fatal(err)
+	}
+	e := NewLiteLLMExporter(o, exporterConfig(server.URL))
+
+	if err := e.ExportOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if d, err := o.Delivery("redirect"); err != nil || d.State != DeliveryRetryable {
+		t.Fatalf("redirect acknowledged: %+v, %v", d, err)
+	}
+}

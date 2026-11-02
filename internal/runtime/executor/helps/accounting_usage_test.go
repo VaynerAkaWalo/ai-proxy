@@ -58,7 +58,6 @@ func TestAccountingAttemptOutcomes(t *testing.T) {
 			}
 		}
 	}
-	// A marker proves all earlier publications have passed through the dispatcher.
 	marker := NewUsageReporter(ctx, "openai", "marker", nil)
 	marker.EnsurePublished(ctx)
 	select {

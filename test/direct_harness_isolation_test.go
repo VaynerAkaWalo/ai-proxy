@@ -27,7 +27,6 @@ func contractAccounts(prefix string, only ...contract) []upstreamAccount {
 	return accounts
 }
 
-// upstreamShape reduces what the provider received to values that must not depend on accounting.
 func upstreamShape(calls []upstreamCall) []string {
 	shapes := make([]string, 0, len(calls))
 	for _, call := range calls {
@@ -55,8 +54,6 @@ type run struct {
 func runContract(t *testing.T, mode accountingMode, c contract, stream bool) run {
 	t.Helper()
 	upstream := newFakeUpstream(t, nil)
-	// Every mode waits for its own usage record, which is delivered asynchronously, so that
-	// a late record cannot leak into the next gateway. The recorder does not touch inference.
 	recorder := recordAccounting(t)
 	g := newGateway(t, gatewayOptions{mode: mode, upstreamURL: upstream.server.URL, accounts: contractAccounts("iso-"+string(mode), c)})
 
@@ -71,9 +68,6 @@ func runContract(t *testing.T, mode accountingMode, c contract, stream bool) run
 	return got
 }
 
-// TestAccountingDoesNotAlterInference proves that, for each harness contract, the client sees
-// byte-identical status, headers, and body, and the provider receives identical requests,
-// whether accounting is off, on, or exporting to a LiteLLM that is offline, stalled or failing.
 func TestAccountingDoesNotAlterInference(t *testing.T) {
 	for _, c := range contracts {
 		for _, stream := range []bool{false, true} {
@@ -135,8 +129,6 @@ func assertSafeSucceededEvent(t *testing.T, c contract, events []usage.Accountin
 	}
 }
 
-// TestAccountingDoesNotAlterCodexWebsocket covers the downstream WebSocket path the Codex
-// harness uses, with the upstream connection also a WebSocket.
 func TestAccountingDoesNotAlterCodexWebsocket(t *testing.T) {
 	var codex contract
 	for _, c := range contracts {
@@ -178,8 +170,6 @@ func TestAccountingDoesNotAlterCodexWebsocket(t *testing.T) {
 	}
 }
 
-// TestCancellationReachesUpstreamAndIsAccounted cancels each streaming contract mid-stream.
-// The provider must see the cancellation in every mode, with no retry caused by accounting.
 func TestCancellationReachesUpstreamAndIsAccounted(t *testing.T) {
 	for _, c := range contracts {
 		t.Run(c.name, func(t *testing.T) {

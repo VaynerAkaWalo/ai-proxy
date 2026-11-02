@@ -8,14 +8,10 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// MaxQuotaSnapshots bounds undelivered snapshots so an unreachable receiver
-// cannot grow the store without limit.
 const MaxQuotaSnapshots = 20000
 
 var quotaSnapshotsBucket = []byte("quota-snapshots-v1")
 
-// QuotaSnapshot is one quota_snapshots row. Unknown nullable fields are omitted,
-// since the receiver rejects unknown keys but accepts missing nullable ones.
 type QuotaSnapshot struct {
 	Source           string     `json:"source"`
 	ObservedAt       time.Time  `json:"observed_at"`
@@ -29,11 +25,9 @@ type QuotaSnapshot struct {
 	ManualResetsLeft *int       `json:"manual_resets_left,omitempty"`
 }
 
-// QuotaSnapshotSource is the row source value.
 const QuotaSnapshotSource = "ai_proxy"
 
 func (s QuotaSnapshot) key() []byte {
-	// Time first so the oldest undelivered snapshots drain first.
 	return []byte(s.ObservedAt.UTC().Format("20060102T150405Z") + "|" + s.AccountID + "|" + s.Window)
 }
 
@@ -41,8 +35,6 @@ func (s QuotaSnapshot) valid() bool {
 	return s.Source != "" && !s.ObservedAt.IsZero() && s.Provider != "" && s.AccountID != "" && s.Window != "" && analyticsAmountPattern.MatchString(s.Utilization)
 }
 
-// EnqueueQuotaSnapshots stores snapshots durably, refusing rows when full rather
-// than evicting undelivered ones. Re-enqueuing a key replaces the row.
 func (o *Outbox) EnqueueQuotaSnapshots(rows []QuotaSnapshot) error {
 	if o == nil || o.unavailable || o.db == nil {
 		return errors.New("accounting store unavailable")
@@ -85,7 +77,6 @@ func (o *Outbox) EnqueueQuotaSnapshots(rows []QuotaSnapshot) error {
 	})
 }
 
-// pendingQuotaSnapshots returns up to limit undelivered snapshots, oldest first.
 func (o *Outbox) pendingQuotaSnapshots(limit int) (keys [][]byte, rows []QuotaSnapshot, err error) {
 	if o == nil || o.db == nil {
 		return nil, nil, nil
@@ -109,8 +100,6 @@ func (o *Outbox) pendingQuotaSnapshots(limit int) (keys [][]byte, rows []QuotaSn
 	return keys, rows, err
 }
 
-// ackQuotaSnapshots removes delivered snapshots. A key whose row was replaced
-// after it was read is kept so the newer content is still delivered.
 func (o *Outbox) ackQuotaSnapshots(keys [][]byte, rows []QuotaSnapshot) error {
 	if len(keys) == 0 {
 		return nil

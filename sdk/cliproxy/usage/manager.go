@@ -625,7 +625,6 @@ func StartDefault(ctx context.Context) { DefaultManager().Start(ctx) }
 // StopDefault stops the default manager's dispatcher.
 func StopDefault() { DefaultManager().Stop() }
 
-// AttachOutbox owns the accounting ingress independently of the shared dispatcher.
 func (m *Manager) AttachOutbox(outbox *Outbox) (func(), error) {
 	m.accountingMu.Lock()
 	defer m.accountingMu.Unlock()

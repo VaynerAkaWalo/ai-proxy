@@ -17,7 +17,6 @@ const (
 	projectContextKey = "cliproxy.project"
 )
 
-// projectPaths is process-wide because session enrichment runs outside handler instances.
 var projectPaths atomic.Pointer[map[string]string]
 
 func setProjectPaths(cfg *config.SDKConfig) {
@@ -26,8 +25,6 @@ func setProjectPaths(cfg *config.SDKConfig) {
 	}
 }
 
-// ProjectHeaderMiddleware keeps the client's X-Project accounting tag and removes it
-// before any route can forward request headers upstream.
 func ProjectHeaderMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if project := strings.TrimSpace(c.GetHeader(projectHeader)); project != "" {
@@ -51,8 +48,6 @@ func enrichContextWithProject(ctx context.Context, payload []byte) context.Conte
 	return logging.WithClientRequestMetadata(ctx, meta)
 }
 
-// requestProject remembers the derived project on the connection because websocket
-// continuations only carry incremental input without the client's environment.
 func requestProject(ctx context.Context, payload []byte) string {
 	ginCtx, _ := ctx.Value("gin").(*gin.Context)
 	if ginCtx != nil {
@@ -68,18 +63,14 @@ func requestProject(ctx context.Context, payload []byte) string {
 	return project
 }
 
-// cwdMarkers are where coding agents announce their working directory in the prompt.
 var cwdMarkers = []struct{ start, end string }{
-	{"<cwd>", "</cwd>"},                        // Codex <environment_context>
-	{"Working directory: ", "\n"},              // Claude Code (older), opencode
-	{"working directory: ", "\n"},              // Claude Code "Primary working directory: "
-	{"**Workspace Directories:**\n  - ", "\n"}, // Gemini CLI
-	{"working in the directory: ", "\n"},       // Gemini CLI (older)
+	{"<cwd>", "</cwd>"},
+	{"Working directory: ", "\n"},
+	{"working directory: ", "\n"},
+	{"**Workspace Directories:**\n  - ", "\n"},
+	{"working in the directory: ", "\n"},
 }
 
-// cwdFromPayload looks only at instructions and the leading context messages, which is
-// where clients put their environment, so long conversations are not scanned. The result
-// may reference payload memory.
 func cwdFromPayload(payload []byte) string {
 	var instructions, messages []gjson.Result
 	util.ParseGJSONBytesNoCopy(payload).ForEach(func(key, value gjson.Result) bool {
@@ -158,8 +149,6 @@ func cwdFromText(text string) string {
 	return ""
 }
 
-// projectFromCwd names the repository a working directory belongs to, resolving agent
-// worktrees back to their repository. Only the name leaves this function, never the path.
 func projectFromCwd(cwd string) string {
 	cwd = strings.TrimRight(strings.ReplaceAll(cwd, `\`, "/"), "/")
 	if cwd == "" {
@@ -172,15 +161,15 @@ func projectFromCwd(cwd string) string {
 	segments := strings.Split(cwd, "/")
 	for i, segment := range segments {
 		switch {
-		case segment == ".worktrees": // <repo>/.worktrees/<branch>
+		case segment == ".worktrees":
 			return segmentAt(segments, i-1)
-		case segment == "worktrees" && segmentAt(segments, i-1) == ".claude": // <repo>/.claude/worktrees/<name>
+		case segment == "worktrees" && segmentAt(segments, i-1) == ".claude":
 			return segmentAt(segments, i-2)
-		case segment == "worktrees" && segmentAt(segments, i-1) == ".codex": // ~/.codex/worktrees/<id>/<repo>
+		case segment == "worktrees" && segmentAt(segments, i-1) == ".codex":
 			return segmentAt(segments, i+2)
-		case segment == "worktrees": // ~/.t3/worktrees/<repo>/<branch>
+		case segment == "worktrees":
 			return segmentAt(segments, i+1)
-		case segment == "scratch" && segmentAt(segments, i-1) == ".t3": // ~/.t3/scratch/<chat>, a T3 chat without a project
+		case segment == "scratch" && segmentAt(segments, i-1) == ".t3":
 			return ""
 		}
 	}
@@ -214,7 +203,6 @@ func segmentAt(segments []string, i int) string {
 	return segments[i]
 }
 
-// isScratchDir reports temp directories and bare home or root directories, which name no project.
 func isScratchDir(segments []string) bool {
 	if len(segments) < 2 {
 		return true

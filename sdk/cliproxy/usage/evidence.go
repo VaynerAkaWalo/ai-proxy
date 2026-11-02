@@ -21,7 +21,6 @@ var tokenEvidencePaths = []string{
 	"cached_tokens", "total_cached_tokens", "cache_creation_tokens", "cacheCreationTokens", "cache_write_tokens", "cacheWriteTokens",
 }
 
-// CaptureTokenEvidence copies only numeric provider token fields from a usage object.
 func CaptureTokenEvidence(data []byte) *TokenEvidence {
 	var evidence map[string]int64
 	nodeRoot := gjson.ParseBytes(data)
@@ -41,7 +40,6 @@ func CaptureTokenEvidence(data []byte) *TokenEvidence {
 	return &TokenEvidence{Fields: evidence}
 }
 
-// SafeTokenEvidence also filters evidence supplied by third-party SDK plugins.
 func SafeTokenEvidence(source *TokenEvidence) map[string]int64 {
 	var evidence map[string]int64
 	if source == nil {

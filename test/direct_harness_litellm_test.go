@@ -19,9 +19,7 @@ const (
 	receiverOffline
 	receiverStall
 	receiverServerError
-	// receiverLoseResponse applies the batch, then drops the connection before replying.
 	receiverLoseResponse
-	// receiverPartialFailure reports per-record callback failures inside an HTTP 200.
 	receiverPartialFailure
 )
 
@@ -38,7 +36,6 @@ func receiverBehaviorFor(mode accountingMode) receiverBehavior {
 	}
 }
 
-// spendAggregate is one identity counter as the simulated LiteLLM read API reports it.
 type spendAggregate struct {
 	Events           int64
 	Successful       int64
@@ -48,7 +45,6 @@ type spendAggregate struct {
 	Spend            float64
 }
 
-// spendReceipt is the spend-log observation for one completion ID.
 type spendReceipt struct {
 	ID               string
 	Rows             int
@@ -62,7 +58,6 @@ type spendReceipt struct {
 	Spend            float64
 }
 
-// spendRow is one simulated spend-log row.
 type spendRow struct {
 	ID               string
 	KeyHash          string
@@ -77,30 +72,22 @@ type spendRow struct {
 	Spend            float64
 }
 
-// fakeLiteLLM simulates the stock receiver behavior documented in docs/litellm-exporter.md:
-// spend-log rows deduplicate on the completion ID, while identity aggregates increment once
-// per processed callback. It is a transport and bookkeeping model for the exporter, not a
-// substitute for a check against a deployed LiteLLM.
 type fakeLiteLLM struct {
 	t        *testing.T
 	baseURL  string
 	mu       sync.Mutex
 	behavior receiverBehavior
-	// failIDs lists completion IDs whose callback fails under receiverPartialFailure.
-	failIDs map[string]bool
+	failIDs  map[string]bool
 
 	rows       map[string]spendRow
 	aggregates map[string]spendAggregate
-	// batches records the completion IDs of every logs request in arrival order.
-	batches [][]string
-	// processed counts callbacks that ran, including duplicates of an existing row.
-	processed int
+	batches    [][]string
+	processed  int
 
 	logsHits    atomic.Int64
 	release     chan struct{}
 	releaseOnce sync.Once
-	// leaked collects any request body that contains credential material.
-	leaked []string
+	leaked      []string
 }
 
 func newFakeLiteLLM(t *testing.T, behavior receiverBehavior) *fakeLiteLLM {
@@ -217,7 +204,6 @@ func (f *fakeLiteLLM) checkForCredentials(body string) {
 	}
 }
 
-// apply must be called with f.mu held.
 func (f *fakeLiteLLM) apply(id, status string, payload map[string]any) {
 	metadata, _ := payload["metadata"].(map[string]any)
 	number := func(name string) int64 { v, _ := payload[name].(float64); return int64(v) }
@@ -248,7 +234,6 @@ func (f *fakeLiteLLM) apply(id, status string, payload map[string]any) {
 	}
 }
 
-// receipts reads the simulated spend-log API for the given completion IDs.
 func (f *fakeLiteLLM) receipts(ids ...string) []spendReceipt {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -17,7 +17,6 @@ type burstResult struct {
 	failed  int
 }
 
-// burst sends total chat requests with the given concurrency and records per-request latency.
 func burst(t *testing.T, g *gateway, c contract, total, concurrency int) burstResult {
 	t.Helper()
 	latencies := make([]time.Duration, total)
@@ -60,9 +59,6 @@ func heapInUse() uint64 {
 	return stats.HeapInuse
 }
 
-// TestSlowOrFailedExporterDoesNotDegradeInference runs two request bursts per mode. The second
-// starts after the exporter has engaged its receiver, so it measures inference while the
-// exporter is blocked on a stalled receiver, backing off from an offline one, or retrying 5xx.
 func TestSlowOrFailedExporterDoesNotDegradeInference(t *testing.T) {
 	const total, concurrency = 300, 8
 	chat := contracts[0]
@@ -110,14 +106,12 @@ func TestSlowOrFailedExporterDoesNotDegradeInference(t *testing.T) {
 	baseline := results[accountingDisabled]
 	for _, mode := range allAccountingModes[1:] {
 		got := results[mode]
-		// Generous bounds: this guards against blocking, not against scheduler noise.
 		if got.elapsed > 5*baseline.elapsed+time.Second || got.p99 > baseline.p99*10+500*time.Millisecond {
 			t.Errorf("%s degraded inference: elapsed %s p99 %s vs baseline %s %s", mode, got.elapsed, got.p99, baseline.elapsed, baseline.p99)
 		}
 	}
 }
 
-// waitForExporter returns once the exporter has made its first receiver contact for the mode.
 func waitForExporter(t *testing.T, g *gateway, mode accountingMode) {
 	t.Helper()
 	if mode == accountingDisabled || mode == accountingEnabled {
@@ -140,7 +134,6 @@ func waitForExporter(t *testing.T, g *gateway, mode accountingMode) {
 	t.Fatalf("exporter never engaged the %s receiver, status=%s", mode, g.exporter.Status())
 }
 
-// assertAccountingHealthy checks the accounting counters after the traffic completed.
 func assertAccountingHealthy(t *testing.T, g *gateway, mode accountingMode, accepted int) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
