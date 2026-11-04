@@ -1,0 +1,337 @@
+{
+  "id": "llm-usage",
+  "title": "LLM usage",
+  "models": [
+    "llm_usage@0"
+  ],
+  "time": {
+    "default": {
+      "last": 7,
+      "unit": "day"
+    },
+    "options": [
+      {
+        "last": 7,
+        "unit": "day"
+      },
+      {
+        "last": 30,
+        "unit": "day"
+      },
+      {
+        "last": 90,
+        "unit": "day"
+      },
+      {
+        "last": 1,
+        "unit": "day"
+      }
+    ]
+  },
+  "sections": [
+    {
+      "title": "Overview",
+      "widgets": [
+        {
+          "id": "spend-mtd",
+          "title": "Spend",
+          "span": 3,
+          "height": "xs",
+          "type": "stat",
+          "query": {
+            "model": "llm_usage@0",
+            "measures": [
+              "cost_usd"
+            ],
+            "dimensions": [],
+            "where": [],
+            "time": {
+              "dimension": "time"
+            }
+          },
+          "compare": "previous_period"
+        },
+        {
+          "id": "spend-7d",
+          "title": "Spend",
+          "span": 3,
+          "height": "xs",
+          "type": "stat",
+          "query": {
+            "model": "llm_usage@0",
+            "measures": [
+              "cost_usd"
+            ],
+            "dimensions": [],
+            "where": [],
+            "time": {
+              "dimension": "time"
+            }
+          },
+          "window": {
+            "last": 7,
+            "unit": "day"
+          },
+          "secondary": "cost_usd_per_day_over_7d",
+          "labels": {
+            "cost_usd_per_day_over_7d": ""
+          }
+        },
+        {
+          "id": "subscriptions",
+          "title": "Subscriptions",
+          "span": 3,
+          "height": "xs",
+          "type": "stat",
+          "query": {
+            "model": "llm_usage@0",
+            "measures": [
+              "subscriptions_usd"
+            ],
+            "dimensions": [],
+            "where": [
+              {
+                "dimension": "quota_window",
+                "op": "eq",
+                "value": "weekly"
+              }
+            ]
+          },
+          "window": "latest"
+        },
+        {
+          "id": "failure-rate",
+          "title": "Failure rate",
+          "span": 3,
+          "height": "xs",
+          "type": "stat",
+          "query": {
+            "model": "llm_usage@0",
+            "measures": [
+              "failure_rate"
+            ],
+            "dimensions": [],
+            "where": [],
+            "time": {
+              "dimension": "time"
+            }
+          },
+          "window": {
+            "last": 7,
+            "unit": "day"
+          },
+          "secondary": "failed_attempts",
+          "labels": {
+            "failed_attempts": "failed"
+          }
+        },
+        {
+          "id": "cost-by-model",
+          "title": "Cost by model (USD/day)",
+          "span": 7,
+          "height": "md",
+          "query": {
+            "model": "llm_usage@0",
+            "measures": [
+              "cost_usd"
+            ],
+            "dimensions": [
+              "executed_model"
+            ],
+            "where": [],
+            "time": {
+              "dimension": "time",
+              "granularity": "day"
+            }
+          },
+          "type": "bar"
+        },
+        {
+          "id": "capacity",
+          "title": "Capacity",
+          "span": 5,
+          "height": "md",
+          "type": "table",
+          "query": {
+            "model": "llm_usage@0",
+            "measures": [
+              "remaining_utilization",
+              "latest_resets_at"
+            ],
+            "dimensions": [
+              "quota_provider"
+            ],
+            "where": [
+              {
+                "dimension": "quota_window",
+                "op": "eq",
+                "value": "weekly"
+              }
+            ]
+          },
+          "window": "latest",
+          "sort": {
+            "by": "quota_provider",
+            "dir": "asc"
+          },
+          "labels": {
+            "quota_provider": "Provider",
+            "latest_resets_at": "Reset",
+            "remaining_utilization": "Left"
+          }
+        },
+        {
+          "id": "models",
+          "title": "Models",
+          "span": 12,
+          "height": "md",
+          "type": "table",
+          "query": {
+            "model": "llm_usage@0",
+            "measures": [
+              "cost_usd",
+              "attempts",
+              "cost_per_mtok_usd",
+              "cache_read_share",
+              "failure_rate"
+            ],
+            "dimensions": [
+              "executed_model"
+            ],
+            "where": [],
+            "time": {
+              "dimension": "time"
+            }
+          },
+          "share": "cost_usd",
+          "sort": {
+            "by": "cost_usd",
+            "dir": "desc"
+          },
+          "limit": 15,
+          "labels": {
+            "attempts": "Attempts",
+            "cost_usd": "Spend",
+            "failure_rate": "Fail rate",
+            "executed_model": "Model",
+            "cache_read_share": "Cache read",
+            "cost_per_mtok_usd": "$ / Mtok"
+          }
+        }
+      ]
+    },
+    {
+      "title": "Details",
+      "widgets": [
+        {
+          "id": "cost-by-project",
+          "title": "Cost by project (USD)",
+          "span": 6,
+          "height": "md",
+          "type": "table",
+          "query": {
+            "model": "llm_usage@0",
+            "measures": [
+              "cost_usd"
+            ],
+            "dimensions": [
+              "project"
+            ],
+            "where": [],
+            "time": {
+              "dimension": "time"
+            }
+          },
+          "share": "cost_usd",
+          "sort": {
+            "by": "cost_usd",
+            "dir": "desc"
+          },
+          "limit": 8,
+          "labels": {
+            "project": "Project",
+            "cost_usd": "Spend"
+          }
+        },
+        {
+          "id": "tokens",
+          "title": "Tokens (M/day)",
+          "span": 6,
+          "height": "md",
+          "query": {
+            "model": "llm_usage@0",
+            "measures": [
+              "cache_read_tokens",
+              "input_uncached_tokens",
+              "output_tokens"
+            ],
+            "dimensions": [],
+            "where": [],
+            "time": {
+              "dimension": "time",
+              "granularity": "day"
+            }
+          },
+          "labels": {
+            "output_tokens": "output",
+            "cache_read_tokens": "cache read",
+            "input_uncached_tokens": "input"
+          },
+          "type": "bar",
+          "stacked": true
+        },
+        {
+          "id": "outcomes",
+          "title": "Failed and interrupted (per day)",
+          "span": 6,
+          "height": "md",
+          "query": {
+            "model": "llm_usage@0",
+            "measures": [
+              "failed_attempts",
+              "interrupted_attempts",
+              "unpriced_attempts"
+            ],
+            "dimensions": [],
+            "where": [],
+            "time": {
+              "dimension": "time",
+              "granularity": "day"
+            }
+          },
+          "labels": {
+            "failed_attempts": "failed",
+            "unpriced_attempts": "unpriced",
+            "interrupted_attempts": "interrupted"
+          },
+          "type": "bar",
+          "stacked": true
+        },
+        {
+          "id": "latency",
+          "title": "Latency (s)",
+          "span": 6,
+          "height": "md",
+          "query": {
+            "model": "llm_usage@0",
+            "measures": [
+              "latency_p50_seconds",
+              "latency_p95_seconds"
+            ],
+            "dimensions": [],
+            "where": [],
+            "time": {
+              "dimension": "time",
+              "granularity": "day"
+            }
+          },
+          "labels": {
+            "latency_p50_seconds": "p50",
+            "latency_p95_seconds": "p95"
+          },
+          "type": "line"
+        }
+      ]
+    }
+  ]
+}

@@ -7,6 +7,15 @@ permissions:
   contents: read
 
 jobs:
+  analytics-dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint dashboard apply script
+        run: shellcheck deploy/apply-analytics-dashboard.sh
+      - name: Dashboard provisioning tests
+        run: python3 -B -m unittest deploy/test_analytics_dashboard.py
+
   build:
     runs-on: ubuntu-latest
     steps:
