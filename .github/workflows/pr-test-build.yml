@@ -7,6 +7,18 @@ permissions:
   contents: read
 
 jobs:
+  analytics-dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint dashboard apply script
+        run: shellcheck deploy/apply-analytics-dashboard.sh
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Dashboard provisioning tests
+        run: bun test ./deploy/analytics-dashboard.test.ts
+
   build:
     runs-on: ubuntu-latest
     steps:
