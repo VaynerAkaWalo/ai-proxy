@@ -11,9 +11,10 @@ dashboard_id=$(jq -er '.id | select(test("^[a-z0-9-]+$"))' "$definition")
 response=$(mktemp)
 trap 'rm -f "$response"' EXIT
 
-status=$(curl --silent --show-error --fail-with-body \
+status=$(printf 'Authorization: Bearer %s\n' "$ANALYTICS_DASHBOARD_TOKEN" | \
+  curl --silent --show-error --fail-with-body \
   --request PUT \
-  --header "Authorization: Bearer $ANALYTICS_DASHBOARD_TOKEN" \
+  --header @- \
   --header 'Content-Type: application/json' \
   --data-binary "@$definition" \
   --output "$response" \
