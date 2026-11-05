@@ -223,6 +223,10 @@ func (q *quotaSnapshotSampler) observe(auth *coreauth.Auth) {
 		key := auth.ID + "|" + window.Window
 		mark := quotaSnapshotMark{utilization: formatQuotaUtilization(window.Utilization), resetsAt: window.ResetsAt.Truncate(time.Second), observedAt: observedAt, manualResets: manualMark, metadata: metadata}
 		previous, seen := q.last[key]
+		resetsAt := window.ResetsAt
+		if seen && quotaResetsClose(previous.resetsAt, mark.resetsAt) {
+			resetsAt, mark.resetsAt = previous.resetsAt, previous.resetsAt
+		}
 		if seen {
 			metadataChanged := previous.metadata != mark.metadata
 			if metadataChanged && probe != nil && probe.ObservedAt.After(observedAt) {
@@ -241,9 +245,8 @@ func (q *quotaSnapshotSampler) observe(auth *coreauth.Auth) {
 			Source: usage.QuotaSnapshotSource, ObservedAt: observedAt, Provider: provider, AccountID: accountID,
 			Plan: plan, PlanPriceUSD: price, Window: window.Window, Utilization: mark.utilization,
 		}
-		if !window.ResetsAt.IsZero() {
-			resets := window.ResetsAt
-			row.ResetsAt = &resets
+		if !resetsAt.IsZero() {
+			row.ResetsAt = &resetsAt
 		}
 		if manual != nil {
 			value := *manual
