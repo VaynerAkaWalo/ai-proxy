@@ -181,6 +181,47 @@
           }
         },
         {
+          "id": "quota-week-spend",
+          "title": "This quota week",
+          "span": 12,
+          "height": "sm",
+          "type": "table",
+          "query": {
+            "model": "llm_usage@0",
+            "measures": [
+              "cost_usd",
+              "attempts"
+            ],
+            "dimensions": [
+              "provider",
+              "account"
+            ],
+            "where": [
+              {
+                "dimension": "quota_window",
+                "op": "eq",
+                "value": "weekly"
+              }
+            ]
+          },
+          "period": {
+            "name": "quota_reset",
+            "window": "current"
+          },
+          "sort": {
+            "by": "provider",
+            "dir": "asc"
+          },
+          "labels": {
+            "provider": "Provider",
+            "account": "Account",
+            "window_start": "Started",
+            "window_end": "Resets",
+            "cost_usd": "Spend",
+            "attempts": "Attempts"
+          }
+        },
+        {
           "id": "models",
           "title": "Models",
           "span": 12,
