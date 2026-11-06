@@ -156,10 +156,11 @@
             "model": "llm_usage@0",
             "measures": [
               "remaining_utilization",
-              "latest_resets_at"
+              "latest_resets_at",
+              "usage_left_usd"
             ],
             "dimensions": [
-              "quota_provider"
+              "provider"
             ],
             "where": [
               {
@@ -168,45 +169,6 @@
                 "value": "weekly"
               }
             ]
-          },
-          "window": "latest",
-          "sort": {
-            "by": "quota_provider",
-            "dir": "asc"
-          },
-          "labels": {
-            "quota_provider": "Provider",
-            "latest_resets_at": "Reset",
-            "remaining_utilization": "Left"
-          }
-        },
-        {
-          "id": "quota-week-spend",
-          "title": "This quota week",
-          "span": 12,
-          "height": "sm",
-          "type": "table",
-          "query": {
-            "model": "llm_usage@0",
-            "measures": [
-              "cost_usd",
-              "attempts"
-            ],
-            "dimensions": [
-              "provider",
-              "account"
-            ],
-            "where": [
-              {
-                "dimension": "quota_window",
-                "op": "eq",
-                "value": "weekly"
-              }
-            ]
-          },
-          "period": {
-            "name": "quota_reset",
-            "window": "current"
           },
           "sort": {
             "by": "provider",
@@ -214,12 +176,15 @@
           },
           "labels": {
             "provider": "Provider",
-            "account": "Account",
-            "window_start": "Started",
-            "window_end": "Resets",
-            "cost_usd": "Spend",
-            "attempts": "Attempts"
-          }
+            "latest_resets_at": "Reset",
+            "remaining_utilization": "Left",
+            "usage_left_usd": "Left at API prices"
+          },
+          "period": {
+            "name": "quota_reset",
+            "window": "current"
+          },
+          "hide_window": true
         },
         {
           "id": "models",
