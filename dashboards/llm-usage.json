@@ -156,10 +156,11 @@
             "model": "llm_usage@0",
             "measures": [
               "remaining_utilization",
+              "usage_left_usd",
               "latest_resets_at"
             ],
             "dimensions": [
-              "quota_provider"
+              "provider"
             ],
             "where": [
               {
@@ -169,16 +170,21 @@
               }
             ]
           },
-          "window": "latest",
           "sort": {
-            "by": "quota_provider",
+            "by": "provider",
             "dir": "asc"
           },
           "labels": {
-            "quota_provider": "Provider",
+            "provider": "Provider",
             "latest_resets_at": "Reset",
-            "remaining_utilization": "Left"
-          }
+            "remaining_utilization": "Left",
+            "usage_left_usd": "Estimated"
+          },
+          "period": {
+            "name": "quota_reset",
+            "window": "current"
+          },
+          "hide_window": true
         },
         {
           "id": "models",
