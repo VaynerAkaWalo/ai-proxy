@@ -156,8 +156,8 @@
             "model": "llm_usage@0",
             "measures": [
               "remaining_utilization",
-              "latest_resets_at",
-              "usage_left_usd"
+              "usage_left_usd",
+              "latest_resets_at"
             ],
             "dimensions": [
               "provider"
@@ -178,7 +178,7 @@
             "provider": "Provider",
             "latest_resets_at": "Reset",
             "remaining_utilization": "Left",
-            "usage_left_usd": "Left at API prices"
+            "usage_left_usd": "Estimated"
           },
           "period": {
             "name": "quota_reset",
