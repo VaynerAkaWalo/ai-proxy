@@ -207,6 +207,9 @@ func applySummaryConfigForProvider(body []byte, format, model, provider string, 
 		value := "omitted"
 		if enabled {
 			value = "summarized"
+			if strings.EqualFold(strings.TrimSpace(doc.Get("thinking.display").String()), "updates") {
+				value = "updates"
+			}
 		}
 		body, _ = sjson.SetBytes(body, "thinking.display", value)
 	case "gemini":
@@ -440,7 +443,7 @@ func claudeSummaryConfig(body []byte, path string) (SummaryConfig, bool) {
 		return SummaryConfig{}, false
 	}
 	switch strings.ToLower(strings.TrimSpace(value.String())) {
-	case "summarized":
+	case "summarized", "updates":
 		return SummaryConfig{Mode: SummaryEnabled, Detail: "auto"}, true
 	case "omitted":
 		return SummaryConfig{Mode: SummaryDisabled}, true
