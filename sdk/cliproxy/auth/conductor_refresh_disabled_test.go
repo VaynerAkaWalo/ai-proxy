@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/MoeForge/moego/base64"
 	"net/http"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/MoeForge/moego/base64"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 )
 
