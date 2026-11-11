@@ -280,22 +280,38 @@ func (o *Outbox) Event(id string) (AccountingEvent, error) {
 	return event, err
 }
 
-func (o *Outbox) unpricedEventIDs(limit int) ([]string, error) {
+func catalogMightPrice(estimate *CostEstimate) bool {
+	if estimate == nil || estimate.Status != "unpriced" {
+		return false
+	}
+	for _, missing := range estimate.Missing {
+		switch missing {
+		case "usage", "valid_usage", "unclassified_usage":
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+func (o *Outbox) unpricedEventIDs(after string, limit int) ([]string, error) {
 	ids := []string{}
 	err := o.view(func(tx *bolt.Tx) error {
-		return tx.Bucket(eventsBucket).ForEach(func(key, raw []byte) error {
-			if len(ids) >= limit {
-				return nil
-			}
+		cursor := tx.Bucket(eventsBucket).Cursor()
+		key, raw := cursor.Seek([]byte(after))
+		if after != "" && key != nil && string(key) == after {
+			key, raw = cursor.Next()
+		}
+		for ; key != nil && len(ids) < limit; key, raw = cursor.Next() {
 			var event AccountingEvent
 			if err := json.Unmarshal(raw, &event); err != nil {
 				return err
 			}
-			if event.Estimate != nil && event.Estimate.Status == "unpriced" {
+			if catalogMightPrice(event.Estimate) {
 				ids = append(ids, event.ExecutionID)
 			}
-			return nil
-		})
+		}
+		return nil
 	})
 	return ids, err
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -206,8 +207,15 @@ func TestAnalyticsExportRepricesADeliveredUnpricedEvent(t *testing.T) {
 	cfg := legacyOutboxConfig(t)
 	cfg.Analytics.URL = server.URL
 	o := openTestOutbox(t, cfg)
+	for i := range 64 {
+		failed := exportEvent(fmt.Sprintf("fail-%02d", i))
+		failed.Estimate = &CostEstimate{Status: "unpriced", Missing: []string{"usage"}}
+		if err := o.Insert(failed); err != nil {
+			t.Fatal(err)
+		}
+	}
 	event := exportEvent("later")
-	event.Estimate = &CostEstimate{Status: "unpriced"}
+	event.Estimate = &CostEstimate{Status: "unpriced", Missing: []string{"model_tier_context_price"}}
 	if err := o.Insert(event); err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +236,7 @@ func TestAnalyticsExportRepricesADeliveredUnpricedEvent(t *testing.T) {
 		t.Fatalf("delivered event stayed unpriced: %+v %v", stored.Estimate, err)
 	}
 	delivery, err := o.deliveriesFor("analytics").Delivery("later")
-	if err != nil || delivery.State != DeliveryAcknowledged || delivery.Attempts != 2 {
-		t.Fatalf("repriced fact was not sent again: %+v %v", delivery, err)
+	if err != nil || delivery.State != DeliveryAcknowledged || delivery.Attempts != 1 {
+		t.Fatalf("repriced fact was not sent: %+v %v", delivery, err)
 	}
 }
