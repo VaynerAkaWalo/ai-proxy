@@ -7,12 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 func TestClaudeExecutorUserAgentFieldsPreserveNativePayload(t *testing.T) {
@@ -33,16 +32,15 @@ func testClaudeExecutorUserAgentFields(t *testing.T, stabilize bool) {
 	t.Helper()
 	for _, path := range []string{"messages", "stream", "count_tokens"} {
 		t.Run(path, func(t *testing.T) {
-			payload := []byte(`{"model":"claude-sonnet-4-6","system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.312; cc_entrypoint=cli; cch=00000;"},{"type":"text","text":"Stable caller instructions","cache_control":{"type":"ephemeral","ttl":"1h"}}],"messages":[{"role":"user","content":[{"type":"text","text":"Check the task","cache_control":{"type":"ephemeral","ttl":"1h"}}]}],"tools":[{"name":"Read","description":"Read a file","input_schema":{"type":"object","properties":{}}}]}`)
-			var errPayload error
+			doc := ojson.NewDoc([]byte(`{"model":"claude-sonnet-4-6","system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.312; cc_entrypoint=cli; cch=00000;"},{"type":"text","text":"Stable caller instructions","cache_control":{"type":"ephemeral","ttl":"1h"}}],"messages":[{"role":"user","content":[{"type":"text","text":"Check the task","cache_control":{"type":"ephemeral","ttl":"1h"}}]}],"tools":[{"name":"Read","description":"Read a file","input_schema":{"type":"object","properties":{}}}]}`))
 			if path != "count_tokens" {
-				payload, errPayload = sjson.SetBytes(payload, "metadata.user_id", claudeNativeHelperUserID)
-			} else {
-				payload, errPayload = sjson.DeleteBytes(payload, "system")
+				if errSet := doc.Set("metadata.user_id", claudeNativeHelperUserID); errSet != nil {
+					t.Fatal(errSet)
+				}
+			} else if errDelete := doc.Delete("system"); errDelete != nil {
+				t.Fatal(errDelete)
 			}
-			if errPayload != nil {
-				t.Fatal(errPayload)
-			}
+			payload := doc.Bytes()
 			var nativeSystem string
 			for _, testCase := range []struct {
 				userAgent, stabilizedUserAgent, xApp string
@@ -107,17 +105,17 @@ func testClaudeExecutorUserAgentFields(t *testing.T, stabilize bool) {
 						t.Fatal("upstream was not called")
 					}
 					for _, field := range []string{"messages", "tools"} {
-						if got, want := gjson.GetBytes(upstreamBody, field).Raw, gjson.GetBytes(payload, field).Raw; got != want {
+						if got, want := ojson.GetBytes(upstreamBody, field).Raw, ojson.GetBytes(payload, field).Raw; got != want {
 							t.Fatalf("native %s changed\n got: %s\nwant: %s", field, got, want)
 						}
 					}
 					// Signing may update billing, but both UAs must produce the same prefix.
-					system := gjson.GetBytes(upstreamBody, "system")
+					system := ojson.GetBytes(upstreamBody, "system")
 					if path == "count_tokens" {
 						if system.Exists() {
 							t.Fatalf("native count_tokens gained a system prompt: %s", system.Raw)
 						}
-					} else if len(system.Array()) != 2 || system.Get("1").Raw != gjson.GetBytes(payload, "system.1").Raw {
+					} else if len(system.Array()) != 2 || system.Get("1").Raw != ojson.GetBytes(payload, "system.1").Raw {
 						t.Fatalf("native system blocks were rebuilt: %s", system.Raw)
 					}
 					if nativeSystem == "" {

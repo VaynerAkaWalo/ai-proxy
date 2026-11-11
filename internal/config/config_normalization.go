@@ -2,6 +2,7 @@ package config
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 
 	sdkpluginstore "github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginstore"
@@ -378,6 +379,50 @@ func sanitizeCodexKeyEntries(entries []CodexKey) []CodexKey {
 	return out
 }
 
+// NormalizeSensitiveWordsReplace trims replacement target keys, drops blank keys,
+// and preserves replacement values (including empty strings for phrase deletion).
+func NormalizeSensitiveWordsReplace(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(in))
+	for k := range in {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make(map[string]string, len(in))
+	for _, rawKey := range keys {
+		trimmedKey := strings.TrimSpace(rawKey)
+		if trimmedKey == "" {
+			continue
+		}
+		if _, exists := out[trimmedKey]; exists && rawKey != trimmedKey {
+			continue
+		}
+		out[trimmedKey] = in[rawKey]
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// SanitizeAntigravity normalizes Antigravity sensitive-word settings.
+func (cfg *Config) SanitizeAntigravity() {
+	if cfg == nil {
+		return
+	}
+	cfg.Antigravity.SensitiveWordsReplace = NormalizeSensitiveWordsReplace(cfg.Antigravity.SensitiveWordsReplace)
+}
+
+// SanitizeDevin normalizes Devin sensitive-word settings.
+func (cfg *Config) SanitizeDevin() {
+	if cfg == nil {
+		return
+	}
+	cfg.Devin.SensitiveWordsReplace = NormalizeSensitiveWordsReplace(cfg.Devin.SensitiveWordsReplace)
+}
+
 // NormalizeCloakConfig trims strings and removes blank sensitive words.
 func NormalizeCloakConfig(cloak *CloakConfig) *CloakConfig {
 	if cloak == nil {
@@ -399,6 +444,7 @@ func NormalizeCloakConfig(cloak *CloakConfig) *CloakConfig {
 	} else {
 		cloak.SensitiveWords = nil
 	}
+	cloak.SensitiveWordsReplace = NormalizeSensitiveWordsReplace(cloak.SensitiveWordsReplace)
 	return cloak
 }
 
@@ -459,6 +505,28 @@ func formatGeminiKeyDedupID(entry GeminiKey) string {
 	b.WriteString(entry.Prefix)
 	b.WriteByte(0)
 	b.WriteString(FormatSortedHeaders(entry.Headers))
+	b.WriteByte(0)
+	b.WriteString(FormatConnectionPoolDedupID(entry.ConnectionPool))
+	return b.String()
+}
+
+// FormatConnectionPoolDedupID serializes a per-credential connection-pool override
+// deterministically for credential deduplication and auth-index mapping.
+func FormatConnectionPoolDedupID(pool *ProxyConnectionPoolConfig) string {
+	if pool == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("pool:")
+	if pool.Enabled != nil {
+		b.WriteString(strconv.FormatBool(*pool.Enabled))
+	}
+	b.WriteByte(0)
+	b.WriteString(strings.TrimSpace(pool.IdleConnTimeout))
+	b.WriteByte(0)
+	if pool.MaxIdleConnsPerHost != nil {
+		b.WriteString(strconv.Itoa(*pool.MaxIdleConnsPerHost))
+	}
 	return b.String()
 }
 

@@ -205,9 +205,9 @@ type retainedRequestPayload struct {
 type retainedRequestContextKey struct{}
 
 //go:noinline
-func publishConsumableRecord(mgr *Manager) (weak.Pointer[retainedRequestPayload], weak.Pointer[TokenEvidence], weak.Pointer[string]) {
+func publishConsumableRecord(mgr *Manager) (weak.Pointer[retainedRequestPayload], weak.Pointer[CacheDetails], weak.Pointer[string]) {
 	ctxPayload := &retainedRequestPayload{}
-	evidence := &TokenEvidence{}
+	cacheDetails := &CacheDetails{}
 	headerSlice := []string{"req-header-value"}
 
 	ctx := context.WithValue(context.Background(), retainedRequestContextKey{}, ctxPayload)
@@ -216,11 +216,11 @@ func publishConsumableRecord(mgr *Manager) (weak.Pointer[retainedRequestPayload]
 		Model:           "gpt-5.4",
 		ResponseHeaders: http.Header{"X-Request-Id": headerSlice},
 		Detail: Detail{
-			TokenEvidence: evidence,
+			CacheDetails: cacheDetails,
 		},
 	})
 
-	return weak.Make(ctxPayload), weak.Make(evidence), weak.Make(&headerSlice[0])
+	return weak.Make(ctxPayload), weak.Make(cacheDetails), weak.Make(&headerSlice[0])
 }
 
 func TestManagerReleasesConsumedQueueItemReferencesWhenIdle(t *testing.T) {
@@ -250,7 +250,7 @@ func TestManagerReleasesConsumedQueueItemReferencesWhenIdle(t *testing.T) {
 		t.Fatalf("consumed request context payload is still retained while manager is idle")
 	}
 	if detailWeak.Value() != nil {
-		t.Fatalf("consumed record Detail.TokenEvidence is still retained while manager is idle")
+		t.Fatalf("consumed record Detail.CacheDetails is still retained while manager is idle")
 	}
 	if headerWeak.Value() != nil {
 		t.Fatalf("consumed record ResponseHeaders backing value is still retained while manager is idle")
