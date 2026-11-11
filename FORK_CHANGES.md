@@ -6,7 +6,7 @@ This fork tracks [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CL
 
 - Optionally, every request attempt produces a versioned accounting event that is queued into a bounded local bbolt outbox (`observability.accounting-outbox`). Persistence is best effort, so queue pressure, storage errors or a crash can drop events. See [docs/accounting-outbox.md](docs/accounting-outbox.md).
 - Events are priced with API-equivalent estimates from the LiteLLM model catalog, refreshed periodically, with a model fallback chain and provider mapping for Codex, Claude, Antigravity, AI Studio and Kimi. Claude `speed: standard` prices at the base rate, `fast` needs an explicit `fast` tier override.
-- Priced events are exported to a stock LiteLLM instance, with each proxy access key mapped to a LiteLLM virtual key. See [docs/litellm-exporter.md](docs/litellm-exporter.md) and [docs/direct-harness-cutover.md](docs/direct-harness-cutover.md).
+- Priced events are exported to the analytics gateway. The public LiteLLM model catalog is only the price source.
 - Streams cancelled mid-send still publish an interrupted usage record for Codex (SSE and WebSocket), xAI WebSocket, OpenAI-compatible and Claude.
 
 ## Routing and rate limits

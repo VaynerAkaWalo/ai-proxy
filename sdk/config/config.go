@@ -11,9 +11,7 @@ type SDKConfig = internalconfig.SDKConfig
 type Config = internalconfig.Config
 
 type AccountingOutboxConfig = internalconfig.AccountingOutboxConfig
-type LiteLLMExporterConfig = internalconfig.LiteLLMExporterConfig
 type AnalyticsExporterConfig = internalconfig.AnalyticsExporterConfig
-type LiteLLMIdentity = internalconfig.LiteLLMIdentity
 type PricingConfig = internalconfig.PricingConfig
 type PriceRate = internalconfig.PriceRate
 type PriceAlias = internalconfig.PriceAlias

@@ -298,7 +298,7 @@ func (o *Outbox) repriceUnpricedEvent(id string) (AccountingEvent, error) {
 
 		var analyticsDelivery *Delivery
 		analyticsBucket := o.deliveriesFor("analytics").bucket
-		if o.secondaryDeliveries {
+		if o.cfg.Analytics.Enabled {
 			if raw := tx.Bucket(analyticsBucket).Get(key); raw != nil {
 				var delivery Delivery
 				if err := json.Unmarshal(raw, &delivery); err != nil {

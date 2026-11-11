@@ -18,10 +18,7 @@ type deliveryQueue struct {
 }
 
 func (o *Outbox) destinationEnabled(destination string) bool {
-	if destination == "analytics" {
-		return o.cfg.Analytics.Enabled
-	}
-	return o.cfg.LiteLLM.Enabled
+	return destination == "analytics" && o.cfg.Analytics.Enabled
 }
 
 func (o *Outbox) secondaryDestination() string {
@@ -86,10 +83,7 @@ func (o *Outbox) initializeDestinations(tx *bolt.Tx) error {
 	}
 	primary := string(metadata.Get(primaryDestinationKey))
 	if primary == "" {
-		primary = "litellm"
-		if o.cfg.Analytics.Enabled && !o.cfg.LiteLLM.Enabled {
-			primary = "analytics"
-		}
+		primary = "analytics"
 		if err := metadata.Put(primaryDestinationKey, []byte(primary)); err != nil {
 			return err
 		}

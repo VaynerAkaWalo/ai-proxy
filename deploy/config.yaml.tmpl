@@ -29,13 +29,6 @@ observability:
   accounting-outbox:
     enabled: true
     data-path: /data/outbox
-    litellm:
-      enabled: true
-      url: https://llm.blamedevs.com
-      admin-key-env: LITELLM_ACCOUNTING_ADMIN_KEY
-      clients:
-        "${LITELLM_CLIENT_ID}":
-          key-hash: "${LITELLM_KEY_HASH}"
     analytics:
       enabled: true
       url: https://analytics.blamedevs.com

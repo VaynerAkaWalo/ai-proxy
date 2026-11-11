@@ -3,37 +3,15 @@ package test
 import (
 	"context"
 	"fmt"
-	"math"
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 )
 
 func chatBody(prompt string, stream bool) string {
 	return fmt.Sprintf(`{"model":"grok-fixture-chat","stream":%t,"stream_options":{"include_usage":true},"messages":[{"role":"user","content":%q}]}`, stream, prompt)
-}
-
-func waitFor(t *testing.T, what string, timeout time.Duration, condition func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for !condition() {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", what)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-}
-
-func deliveryState(t *testing.T, g *gateway, id string) usage.Delivery {
-	t.Helper()
-	delivery, err := g.outbox.Delivery(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return delivery
 }
 
 func TestAccountingReconciliationScenario(t *testing.T) {
@@ -63,7 +41,6 @@ func TestAccountingReconciliationScenario(t *testing.T) {
 	recorder := recordAccounting(t)
 
 	first := newGateway(t, gatewayOptions{mode: accountingEnabled, upstreamURL: upstream.server.URL, accounts: accounts})
-	dataPath := first.dataPath
 
 	failover := post(t, context.Background(), first.URL+chat.path, chatBody("failover", false), nil)
 	if failover.Status != http.StatusOK {
@@ -97,98 +74,4 @@ func TestAccountingReconciliationScenario(t *testing.T) {
 	if len(failoverTrace) != 2 || failoverTrace[0].ExecutionID == failoverTrace[1].ExecutionID {
 		t.Fatalf("failover must yield two attempts under one trace with distinct execution IDs: %+v", byTrace)
 	}
-	first.shutdown()
-
-	receiver := newFakeLiteLLM(t, receiverPartialFailure)
-	failingID := successes[1].ExecutionID
-	receiver.failIDs[failingID] = true
-	second := newGateway(t, gatewayOptions{mode: accountingLiteLLMFailing, upstreamURL: upstream.server.URL, accounts: accounts, dataPath: dataPath, receiver: receiver, exportClients: true})
-
-	waitFor(t, "first export batch", 15*time.Second, func() bool { return receiver.processedCount() >= 2 })
-	receiver.setBehavior(receiverLoseResponse)
-	waitFor(t, "lost-response replay", 20*time.Second, func() bool { return receiver.processedCount() >= 3 })
-	receiver.setBehavior(receiverAccept)
-	waitFor(t, "every success acknowledged", 20*time.Second, func() bool {
-		for _, event := range successes {
-			if deliveryState(t, second, event.ExecutionID).State != usage.DeliveryAcknowledged {
-				return false
-			}
-		}
-		return true
-	})
-
-	for _, event := range successes {
-		want := uint64(1)
-		if event.ExecutionID == failingID {
-			want = 3
-		}
-		if got := deliveryState(t, second, event.ExecutionID); got.Attempts != want {
-			t.Errorf("event %s delivery attempts = %d, want %d", event.ExecutionID, got.Attempts, want)
-		}
-	}
-	for _, event := range unexportable {
-		if got := deliveryState(t, second, event.ExecutionID); got.State != usage.DeliveryRejected || got.Attempts != 1 {
-			t.Errorf("non-success attempt %s delivery = %+v, want rejected after one claim", event.ExecutionID, got)
-		}
-	}
-	for _, batch := range receiver.batches {
-		for _, id := range batch {
-			for _, event := range unexportable {
-				if id == event.ExecutionID {
-					t.Errorf("non-success attempt %s was exported", id)
-				}
-			}
-		}
-	}
-	if stats, err := second.outbox.Stats(); err != nil || stats.Backlog != 0 || stats.DroppedEvents != 0 {
-		t.Errorf("outbox stats after export = %+v, %v", stats, err)
-	}
-	if leaked := receiver.leakedSecrets(); len(leaked) > 0 {
-		t.Errorf("exported records contain credential material: %v", leaked)
-	}
-
-	var wantPrompt, wantCompletion int64
-	var wantSpend float64
-	for _, event := range successes {
-		wantPrompt += event.Tokens.Breakdown.Input.TotalTokens
-		wantCompletion += event.Tokens.Breakdown.Output.TotalTokens
-		var amount float64
-		if _, err := fmt.Sscan(*event.Estimate.Amount, &amount); err != nil {
-			t.Fatal(err)
-		}
-		wantSpend += amount
-	}
-	ids := make([]string, 0, len(successes))
-	for _, event := range successes {
-		ids = append(ids, event.ExecutionID)
-	}
-	var rowPrompt, rowCompletion int64
-	var rowSpend float64
-	for _, receipt := range receiver.receipts(ids...) {
-		if receipt.Rows != 1 {
-			t.Fatalf("event %s has %d spend rows, want exactly one", receipt.ID, receipt.Rows)
-		}
-		rowPrompt += receipt.PromptTokens
-		rowCompletion += receipt.CompletionTokens
-		rowSpend += receipt.Spend
-	}
-	if rowPrompt != wantPrompt || rowCompletion != wantCompletion || math.Abs(rowSpend-wantSpend) > 1e-9 {
-		t.Errorf("spend rows (%d/%d tokens, %.9f) disagree with the outbox (%d/%d tokens, %.9f)", rowPrompt, rowCompletion, rowSpend, wantPrompt, wantCompletion, wantSpend)
-	}
-	if rows := receiver.rowCount(); rows != len(successes) {
-		t.Errorf("spend-log rows = %d, want %d unique rows despite the replay", rows, len(successes))
-	}
-
-	identity := "key/" + fixtureKeyHash()
-	aggregate := receiver.aggregateSnapshot()[identity]
-	replays := receiver.processedCount() - receiver.rowCount()
-	if replays != 1 || aggregate.Events != int64(len(successes)+replays) {
-		t.Errorf("aggregate events = %d with %d replayed callbacks, want %d events", aggregate.Events, replays, len(successes)+1)
-	}
-	replayedTokens := aggregate.PromptTokens - rowPrompt
-	if replayedTokens != 12 || math.Abs(aggregate.Spend-rowSpend-0.000032) > 1e-9 {
-		t.Errorf("aggregate over-count = %d prompt tokens, %.9f spend, want exactly one replayed record (12 tokens, 0.000032)", replayedTokens, aggregate.Spend-rowSpend)
-	}
-	t.Logf("reconciled: %d unique rows, %d/%d tokens, spend %.9f; aggregates over-count by %d replayed callback (%d tokens, %.9f spend)",
-		receiver.rowCount(), rowPrompt, rowCompletion, rowSpend, replays, replayedTokens, aggregate.Spend-rowSpend)
 }

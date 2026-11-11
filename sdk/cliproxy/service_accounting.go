@@ -2,8 +2,6 @@ package cliproxy
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
@@ -41,15 +39,10 @@ func (s *Service) startAccountingOutbox() error {
 		return err
 	}
 	s.accountingOutbox, s.accountingDetach, s.accountingShutdownSeconds = outbox, detach, cfg.ShutdownSeconds
-	if cfg.Analytics.Enabled && cfg.LiteLLM.Enabled {
-		s.accountingExporter = &accountingExporterPair{
-			litellm:   usage.NewLiteLLMExporter(outbox, cfg.LiteLLM),
-			analytics: usage.NewAnalyticsExporter(outbox, cfg.Analytics),
-		}
-	} else if cfg.Analytics.Enabled {
+	if cfg.Analytics.Enabled {
 		s.accountingExporter = usage.NewAnalyticsExporter(outbox, cfg.Analytics)
 	} else {
-		s.accountingExporter = usage.NewLiteLLMExporter(outbox, cfg.LiteLLM)
+		s.accountingExporter = noopAccountingExporter{}
 	}
 	s.accountingExporter.Start()
 	if cfg.Analytics.Enabled && cfg.Analytics.QuotaSnapshots.Enabled && s.coreManager != nil {
@@ -103,25 +96,10 @@ func (s *Service) AccountingExporterStatus() string {
 	return s.accountingExporter.Status()
 }
 
-type accountingExporterPair struct {
-	litellm   accountingExporter
-	analytics accountingExporter
-}
+type noopAccountingExporter struct{}
 
-func (p *accountingExporterPair) Start() {
-	p.litellm.Start()
-	p.analytics.Start()
-}
+func (noopAccountingExporter) Start() {}
 
-func (p *accountingExporterPair) Stop(ctx context.Context) error {
-	results := make(chan error, 2)
-	for _, exporter := range []accountingExporter{p.litellm, p.analytics} {
-		go func() { results <- exporter.Stop(ctx) }()
-	}
+func (noopAccountingExporter) Stop(context.Context) error { return nil }
 
-	return errors.Join(<-results, <-results)
-}
-
-func (p *accountingExporterPair) Status() string {
-	return fmt.Sprintf("litellm:%s,analytics:%s", p.litellm.Status(), p.analytics.Status())
-}
+func (noopAccountingExporter) Status() string { return "disabled" }

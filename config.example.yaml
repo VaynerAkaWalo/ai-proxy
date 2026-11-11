@@ -1173,7 +1173,7 @@ observability:
     retention-hours: 168
     shutdown-seconds: 5
     analytics:
-      enabled: false # Can run alongside LiteLLM with independent delivery states.
+      enabled: false
       url: "" # Analytics base URL.
       dataset: "" # owner/name implementing llm_usage@0.1/attempts
       prices-dataset: "" # Optional owner/name implementing llm_usage@0.1/prices.
@@ -1190,13 +1190,6 @@ observability:
     # project-paths:
     #   "/home/me/work/monorepo": "monorepo"
     project-paths: {}
-    litellm:
-      enabled: false
-      url: "" # Stock LiteLLM base URL, use HTTPS outside a trusted local network. Only successful requests are exported.
-      admin-key-env: "LITELLM_ACCOUNTING_ADMIN_KEY" # Inject through central deployment secrets.
-      # Map the local ClientKeyID to an existing LiteLLM virtual key's SHA-256 hash.
-      # Each entry also accepts user-id and team-id for the key's existing owners.
-      clients: {}
     pricing:
       # Import a locally supplied LiteLLM JSON catalog. Valid imports are cached in data-path.
       litellm-catalog-path: ""

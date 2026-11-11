@@ -69,7 +69,6 @@ func TestSlowOrFailedExporterDoesNotDegradeInference(t *testing.T) {
 			upstream := newFakeUpstream(t, nil)
 			g := newGateway(t, gatewayOptions{
 				mode: mode, upstreamURL: upstream.server.URL, accounts: contractAccounts("load-"+string(mode), chat),
-				exportClients: true,
 			})
 			if mode != accountingDisabled {
 				recordAccounting(t)
@@ -81,7 +80,6 @@ func TestSlowOrFailedExporterDoesNotDegradeInference(t *testing.T) {
 				t.Fatalf("%d of %d requests failed in the first burst", first.failed, total)
 			}
 
-			waitForExporter(t, g, mode)
 			second := burst(t, g, chat, total, concurrency)
 			results[mode] = second
 			if second.failed != 0 {
@@ -112,28 +110,6 @@ func TestSlowOrFailedExporterDoesNotDegradeInference(t *testing.T) {
 	}
 }
 
-func waitForExporter(t *testing.T, g *gateway, mode accountingMode) {
-	t.Helper()
-	if mode == accountingDisabled || mode == accountingEnabled {
-		return
-	}
-	deadline := time.Now().Add(15 * time.Second)
-	for time.Now().Before(deadline) {
-		switch mode {
-		case accountingLiteLLMStalled, accountingLiteLLMFailing:
-			if g.receiver.logsHits.Load() >= 1 {
-				return
-			}
-		case accountingLiteLLMOffline:
-			if status := g.exporter.Status(); status != "ready" && status != "disabled" {
-				return
-			}
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatalf("exporter never engaged the %s receiver, status=%s", mode, g.exporter.Status())
-}
-
 func assertAccountingHealthy(t *testing.T, g *gateway, mode accountingMode, accepted int) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
@@ -152,21 +128,5 @@ func assertAccountingHealthy(t *testing.T, g *gateway, mode accountingMode, acce
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
-	}
-
-	switch mode {
-	case accountingLiteLLMStalled:
-		if hits := g.receiver.logsHits.Load(); hits != 1 {
-			t.Errorf("stalled receiver saw %d export requests, want exactly the one in flight", hits)
-		}
-	case accountingLiteLLMOffline, accountingLiteLLMFailing:
-		if status := g.exporter.Status(); status == "exported" || status == "ready" {
-			t.Errorf("%s exporter status = %q, want a visible degraded status", mode, status)
-		}
-	}
-	if g.receiver != nil {
-		if leaked := g.receiver.leakedSecrets(); len(leaked) > 0 {
-			t.Errorf("exported records contain credential material: %v", leaked)
-		}
 	}
 }

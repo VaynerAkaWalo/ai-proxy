@@ -37,19 +37,6 @@ type PricingConfig struct {
 	Aliases                    []PriceAlias `yaml:"aliases" json:"aliases"`
 }
 
-type LiteLLMExporterConfig struct {
-	Enabled     bool                       `yaml:"enabled" json:"enabled"`
-	URL         string                     `yaml:"url" json:"url"`
-	AdminKeyEnv string                     `yaml:"admin-key-env" json:"admin-key-env"`
-	Clients     map[string]LiteLLMIdentity `yaml:"clients" json:"clients"`
-}
-
-type LiteLLMIdentity struct {
-	KeyHash string `yaml:"key-hash" json:"key-hash"`
-	UserID  string `yaml:"user-id" json:"user-id"`
-	TeamID  string `yaml:"team-id" json:"team-id"`
-}
-
 type AnalyticsExporterConfig struct {
 	Enabled        bool                 `yaml:"enabled" json:"enabled"`
 	URL            string               `yaml:"url" json:"url"`
@@ -77,7 +64,6 @@ var analyticsDecimalPattern = regexp.MustCompile(`^(0|[1-9]\d{0,11})(\.\d{1,12})
 var analyticsDatasetPattern = regexp.MustCompile(`^[a-z0-9_-]+/[a-z0-9_]+$`)
 
 type AccountingOutboxConfig struct {
-	LiteLLM         LiteLLMExporterConfig   `yaml:"litellm" json:"litellm"`
 	Analytics       AnalyticsExporterConfig `yaml:"analytics" json:"analytics"`
 	Pricing         PricingConfig           `yaml:"pricing" json:"pricing"`
 	Enabled         bool                    `yaml:"enabled" json:"enabled"`
@@ -132,12 +118,6 @@ func (c AccountingOutboxConfig) Validate() error {
 	for plan, price := range c.Analytics.QuotaSnapshots.PlanPricesUSD {
 		if strings.TrimSpace(plan) == "" || !analyticsDecimalPattern.MatchString(price) {
 			return fmt.Errorf("invalid Analytics quota-snapshots plan-prices-usd entry %q", plan)
-		}
-	}
-	if c.LiteLLM.Enabled {
-		u, err := url.Parse(c.LiteLLM.URL)
-		if !c.Enabled || err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.TrimSpace(c.LiteLLM.AdminKeyEnv) == "" {
-			return fmt.Errorf("LiteLLM exporter requires an enabled outbox, HTTP(S) URL without credentials or query, and admin-key-env")
 		}
 	}
 	if c.Pricing.LiteLLMCatalogURL != "" {
