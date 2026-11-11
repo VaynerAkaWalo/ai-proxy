@@ -13,9 +13,58 @@ import (
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/quotaprobe"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 )
+
+func TestServiceAccountingSubscriptionsFollowCredentialsWithoutQuotaWindows(t *testing.T) {
+	outbox, err := usage.OpenOutbox(config.AccountingOutboxConfig{DataPath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = outbox.Close(context.Background()) })
+	manager := coreauth.NewManager(nil, nil, nil)
+	if _, err := manager.Register(context.Background(), &coreauth.Auth{ID: "grok", Provider: "xai", Disabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	sampler := newQuotaSnapshotSampler(outbox, manager, config.QuotaSnapshotsConfig{PlanPricesUSD: map[string]string{"xai:SuperGrok": "30"}}, func() *config.Config { return &config.Config{} })
+	sampler.probes["grok"] = &quotaProbeState{result: &quotaprobe.Result{Plan: "SuperGrok"}}
+
+	sampler.scan()
+	manager.Remove(context.Background(), "grok")
+	sampler.scan()
+
+	var rows []usage.QuotaSnapshot
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lines := bufio.NewScanner(r.Body)
+		count := 0
+		for lines.Scan() {
+			var row usage.QuotaSnapshot
+			if err := json.Unmarshal(lines.Bytes(), &row); err != nil {
+				t.Error(err)
+			}
+			rows = append(rows, row)
+			count++
+		}
+		_, _ = fmt.Fprintf(w, `{"rows":%d}`, count)
+	}))
+	defer server.Close()
+	exporter := usage.NewAnalyticsExporter(outbox, config.AnalyticsExporterConfig{Enabled: true, URL: server.URL, Dataset: "test/usage", QuotaSnapshots: config.QuotaSnapshotsConfig{Enabled: true}})
+	if err := exporter.ExportOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(rows) != 2 {
+		t.Fatalf("expected subscription and retirement without quota windows, got %v", rows)
+	}
+	if rows[0].Window != "subscription" || *rows[0].PlanPriceUSD != "30" || rows[0].AccountID != usage.AccountingAccountID("grok") {
+		t.Fatalf("subscription: %+v", rows[0])
+	}
+	if rows[1].Window != "subscription" || *rows[1].PlanPriceUSD != "0" || !rows[1].ObservedAt.After(rows[0].ObservedAt) {
+		t.Fatalf("retirement: %+v", rows[1])
+	}
+}
 
 func TestQuotaResetsShiftingByLessThanAMinuteAreTheSameReset(t *testing.T) {
 	reset := time.Unix(1700000000, 0)

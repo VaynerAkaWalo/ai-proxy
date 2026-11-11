@@ -98,8 +98,31 @@ func (q *quotaSnapshotSampler) notify(auth *coreauth.Auth) {
 }
 
 func (q *quotaSnapshotSampler) scan() {
-	for _, auth := range q.manager.List() {
+	auths := q.manager.List()
+	for _, auth := range auths {
 		q.observe(auth)
+	}
+	if q.config().Home.Enabled {
+		return
+	}
+
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	rows := make([]usage.QuotaSnapshot, 0, len(auths))
+	for _, auth := range auths {
+		planName := auth.QuotaPlan()
+		if state := q.probes[auth.ID]; state != nil && state.result != nil && state.result.Plan != "" {
+			planName = coreauth.DisplayQuotaPlan(state.result.Plan)
+		}
+		provider := strings.ToLower(strings.TrimSpace(auth.Provider))
+		row := usage.QuotaSnapshot{Provider: provider, AccountID: usage.AccountingAccountID(auth.ID)}
+		if planName != "" {
+			row.Plan, row.PlanPriceUSD = &planName, q.planPrice(provider, planName)
+		}
+		rows = append(rows, row)
+	}
+	if err := q.outbox.ReconcileSubscriptions(rows, time.Now()); err != nil {
+		log.WithError(err).Warn("subscription inventory persistence failed, will retry")
 	}
 }
 
