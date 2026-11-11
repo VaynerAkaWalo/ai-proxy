@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	claudeauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/claude"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
-	"github.com/tidwall/gjson"
 )
 
 const (
@@ -125,10 +125,10 @@ func probeClaude(ctx context.Context, cfg *config.Config, auth *coreauth.Auth, t
 		}
 		return result, nil
 	}
-	root := gjson.ParseBytes(body)
+	root := ojson.ParseBytes(body)
 	for _, w := range []struct{ key, window string }{{"five_hour", coreauth.QuotaWindow5h}, {"seven_day", coreauth.QuotaWindowWeekly}} {
 		node := root.Get(w.key)
-		if !node.Get("utilization").Exists() || node.Get("utilization").Type != gjson.Number {
+		if !node.Get("utilization").Exists() || node.Get("utilization").Type != ojson.Number {
 			continue
 		}
 		result.Windows = append(result.Windows, coreauth.QuotaWindowUsage{
@@ -137,9 +137,9 @@ func probeClaude(ctx context.Context, cfg *config.Config, auth *coreauth.Auth, t
 	}
 	if grants := root.Get("cedar_ember.grants"); grants.IsArray() {
 		left, valid := 0, true
-		grants.ForEach(func(_, grant gjson.Result) bool {
+		grants.ForEach(func(_, grant ojson.Result) bool {
 			value := grant.Get("resets_left")
-			if value.Type != gjson.Number || value.Int() < 0 {
+			if value.Type != ojson.Number || value.Int() < 0 {
 				valid = false
 				return false
 			}
@@ -162,11 +162,11 @@ func probeCodex(ctx context.Context, cfg *config.Config, auth *coreauth.Auth, to
 	if err != nil {
 		return nil, err
 	}
-	root := gjson.ParseBytes(body)
+	root := ojson.ParseBytes(body)
 	result := &Result{ObservedAt: time.Now(), Plan: strings.TrimSpace(root.Get("plan_type").String())}
 	credits := root.Get("rate_limit_reset_credits")
 	for _, key := range []string{"applicable_available_count", "available_count"} {
-		if value := credits.Get(key); value.Type == gjson.Number && value.Int() >= 0 {
+		if value := credits.Get(key); value.Type == ojson.Number && value.Int() >= 0 {
 			left := int(value.Int())
 			result.ManualResetsLeft = &left
 			break
@@ -188,11 +188,11 @@ func probeXAI(ctx context.Context, cfg *config.Config, auth *coreauth.Auth, toke
 
 	var tier, display string
 	if body, err := getJSON(ctx, client, xaiUserURL, headers); err == nil {
-		root := gjson.ParseBytes(body)
+		root := ojson.ParseBytes(body)
 		tier = firstString(root, "subscriptionTier", "subscription_tier")
 	}
 	if body, err := getJSON(ctx, client, xaiSettingsURL, headers); err == nil {
-		display = firstString(gjson.ParseBytes(body), "subscription_tier_display", "subscriptionTierDisplay")
+		display = firstString(ojson.ParseBytes(body), "subscription_tier_display", "subscriptionTierDisplay")
 	}
 	result.Plan = display
 	if result.Plan == "" {
@@ -206,7 +206,7 @@ func probeXAI(ctx context.Context, cfg *config.Config, auth *coreauth.Auth, toke
 		}
 		return nil, err
 	}
-	billing := gjson.ParseBytes(body).Get("config")
+	billing := ojson.ParseBytes(body).Get("config")
 	period := billing.Get("currentPeriod")
 	if !period.Exists() {
 		period = billing.Get("current_period")
@@ -250,11 +250,11 @@ func getJSON(ctx context.Context, client *http.Client, url string, headers map[s
 	return body, nil
 }
 
-func number(value gjson.Result) (float64, bool) {
+func number(value ojson.Result) (float64, bool) {
 	switch value.Type {
-	case gjson.Number:
+	case ojson.Number:
 		return value.Float(), true
-	case gjson.String:
+	case ojson.String:
 		var parsed float64
 		if _, err := fmt.Sscanf(strings.TrimSpace(value.String()), "%g", &parsed); err == nil && !math.IsNaN(parsed) {
 			return parsed, true
@@ -263,7 +263,7 @@ func number(value gjson.Result) (float64, bool) {
 	return 0, false
 }
 
-func firstString(root gjson.Result, keys ...string) string {
+func firstString(root ojson.Result, keys ...string) string {
 	for _, key := range keys {
 		if v := strings.TrimSpace(root.Get(key).String()); v != "" {
 			return v
