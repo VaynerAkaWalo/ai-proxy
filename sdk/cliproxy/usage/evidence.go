@@ -1,6 +1,6 @@
 package usage
 
-import "github.com/tidwall/gjson"
+import "github.com/MoeForge/moego/ojson"
 
 type TokenEvidence struct{ Fields map[string]int64 }
 
@@ -23,10 +23,10 @@ var tokenEvidencePaths = []string{
 
 func CaptureTokenEvidence(data []byte) *TokenEvidence {
 	var evidence map[string]int64
-	nodeRoot := gjson.ParseBytes(data)
+	nodeRoot := ojson.ParseBytes(data)
 	for _, path := range tokenEvidencePaths {
 		node := nodeRoot.Get(path)
-		if node.Type != gjson.Number {
+		if node.Type != ojson.Number {
 			continue
 		}
 		if evidence == nil {

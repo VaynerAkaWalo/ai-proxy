@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 type quotaFixture struct {
@@ -47,6 +47,13 @@ func quotaUpstream(t *testing.T, f quotaFixture, recovered *atomic.Bool) *fakeUp
 	})
 }
 
+func quotaShape(got observed) string {
+	header := got.Header.Clone()
+	header.Del("Retry-After")
+	got.Header = header
+	return got.shape()
+}
+
 func retryAfterSeconds(t *testing.T, got observed) int {
 	t.Helper()
 	value := got.Header.Get("Retry-After")
@@ -71,19 +78,20 @@ func TestQuotaExhaustionIsIndependentOfAccounting(t *testing.T) {
 				if first.Status != http.StatusTooManyRequests {
 					t.Fatalf("%s: status = %d, want 429: %s", mode, first.Status, first.Body)
 				}
-				if got := gjson.Get(first.Body, "error.type").String(); got != f.errorType {
+				if got := ojson.Get(first.Body, "error.type").String(); got != f.errorType {
 					t.Errorf("%s: error type = %q, want the provider's %q: %s", mode, got, f.errorType, first.Body)
 				}
-				if got := first.Header.Get("Retry-After"); got != f.retryAfter {
-					t.Errorf("%s: first rejection Retry-After = %q, want the provider's %q", mode, got, f.retryAfter)
+				if seconds := retryAfterSeconds(t, first); seconds < reset-5 || seconds > reset+31 {
+					t.Errorf("%s: first rejection Retry-After = %ds, want the trusted %ds reset", mode, seconds, reset)
 				}
-				if f.contract.provider == "codex" && gjson.Get(first.Body, "error.resets_in_seconds").Int() != reset {
+				if f.contract.provider == "codex" && ojson.Get(first.Body, "error.resets_in_seconds").Int() != reset {
 					t.Errorf("%s: codex reset information was altered: %s", mode, first.Body)
 				}
+				shape := quotaShape(first)
 				if firstDisabled == "" {
-					firstDisabled = first.shape()
-				} else if first.shape() != firstDisabled {
-					t.Errorf("%s changed the quota response\nwant: %s\n got: %s", mode, firstDisabled, first.shape())
+					firstDisabled = shape
+				} else if shape != firstDisabled {
+					t.Errorf("%s changed the quota response\nwant: %s\n got: %s", mode, firstDisabled, shape)
 				}
 
 				second := post(t, context.Background(), g.URL+f.contract.path, f.contract.request(false), nil)

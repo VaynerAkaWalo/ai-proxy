@@ -12,8 +12,6 @@ This fork tracks [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CL
 ## Routing and rate limits
 
 - `routing.strategy: nearest-reset` picks the credential whose quota window resets soonest, falling back to round robin when no reset time is known.
-- A 429 from Claude or an OpenAI-compatible provider forwards the upstream `Retry-After` header instead of only the proxy's own cooldown.
-- Claude responses expose `Anthropic-Ratelimit-Unified-Reset` and `-Status` from the upstream reset deadline, so SDK clients can wait for the right moment even without `Retry-After`.
 - The management Claude usage lookup is cached across quota refreshes and honors `Retry-After` deadlines.
 
 ## Logging
@@ -28,6 +26,7 @@ This fork tracks [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CL
 
 ## Upstream merges
 
+- 2026-11-11: upstream `8bba7a77`
 - 2026-10-24: upstream `8289ec4c`
 - 2026-10-19: upstream `e7d4c731`
 - Forked from upstream `e1e3a811` (2026-10-05)
