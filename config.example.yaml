@@ -471,14 +471,17 @@ upstream:
     # the same exact software baseline rather than learning newer client versions (unless the
     # credential resolves to cloak_mode: never, which preserves the confirmed caller's headers).
     # header-defaults:
-    #   user-agent: "claude-cli/2.1.280 (external, cli)"
-    #   package-version: "0.112.1"
-    #   runtime-version: "v26.3.0"
+    #   user-agent: "claude-cli/2.1.321 (external, cli)"
+    #   package-version: "0.128.0"
+    #   runtime-version: "v26.12.1"
     #   os: "MacOS"
     #   arch: "arm64"
     #   timeout: "600"
     #   timezone: "Asia/Singapore"  # fallback IANA timezone for cloaked currentDate; a credential JSON "timezone" takes priority
     #   stabilize-device-profile: false  # optional, default false; set true to enable per-auth fingerprint pinning
+    #   # Additional Claude Code entrypoint labels (beyond built-in cli, sdk-cli, sdk-ts, claude-vscode)
+    #   # treated as native Claude Code for passthrough when strong signals match (e.g. T3 Code's "t3-code").
+    #   native-entrypoints: ["t3-code"]
     #   # Advanced operator overrides for exact-parity or gateway lanes. They apply to every Claude
     #   # request, after the per-request derivation above, and can produce a beta set real Claude Code
     #   # never sends, which api.anthropic.com may reject. Names are matched exactly; strip runs first.
