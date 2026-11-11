@@ -4,7 +4,7 @@ Our Go proxy for OpenAI, Gemini, Claude and Codex compatible APIs, with OAuth cr
 
 ## Project context
 
-[README.md](README.md) is the entry point. [FORK_CHANGES.md](FORK_CHANGES.md) tracks our additions and upstream merges, including accounting, LiteLLM usage export, quota-aware routing and Loki logging.
+[README.md](README.md) is the entry point. [FORK_CHANGES.md](FORK_CHANGES.md) tracks our additions and upstream merges, including accounting, analytics export, quota-aware routing and Loki logging.
 
 The deployed configuration comes from [deploy/config.yaml.tmpl](deploy/config.yaml.tmpl). [config.example.yaml](config.example.yaml) is the general configuration reference. [deploy/README.md](deploy/README.md) covers the homelab deployment, secret injection and updates.
 

@@ -19,15 +19,16 @@ import (
 type AnalyticsExporter struct {
 	deliveries deliveryQueue
 
-	outbox   *Outbox
-	cfg      config.AnalyticsExporterConfig
-	client   *http.Client
-	token    string
-	mu       sync.RWMutex
-	exportMu sync.Mutex
-	status   string
-	cancel   context.CancelFunc
-	done     chan struct{}
+	outbox      *Outbox
+	cfg         config.AnalyticsExporterConfig
+	client      *http.Client
+	token       string
+	mu          sync.RWMutex
+	exportMu    sync.Mutex
+	status      string
+	lastReprice time.Time
+	cancel      context.CancelFunc
+	done        chan struct{}
 }
 
 func NewAnalyticsExporter(outbox *Outbox, cfg config.AnalyticsExporterConfig) *AnalyticsExporter {
@@ -123,6 +124,9 @@ func (e *AnalyticsExporter) ExportOnce(ctx context.Context) error {
 }
 
 func (e *AnalyticsExporter) exportAttempts(ctx context.Context) error {
+	if err := e.repriceDeliveredUnpriced(ctx); err != nil {
+		return err
+	}
 	ids, err := e.deliveries.ReadyIDs(64)
 	if err != nil {
 		return err
@@ -210,6 +214,33 @@ func (e *AnalyticsExporter) exportAttempts(ctx context.Context) error {
 		if err := e.deliveries.Resolve(id, attempt, state, e.outbox.now().Add(delay)); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (e *AnalyticsExporter) repriceDeliveredUnpriced(ctx context.Context) error {
+	if !e.lastReprice.IsZero() && e.outbox.now().Sub(e.lastReprice) < time.Hour {
+		return nil
+	}
+	ids, err := e.outbox.unpricedEventIDs(64)
+	if err != nil {
+		return err
+	}
+	priced := 0
+	for _, id := range ids {
+		if ctx.Err() != nil {
+			return nil
+		}
+		event, err := e.outbox.repriceUnpricedEvent(id)
+		if err != nil {
+			return err
+		}
+		if event.Estimate != nil && event.Estimate.Status == "priced" {
+			priced++
+		}
+	}
+	if priced == 0 || len(ids) < 64 {
+		e.lastReprice = e.outbox.now()
 	}
 	return nil
 }

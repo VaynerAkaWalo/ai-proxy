@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -105,8 +108,8 @@ func TestLegacyLiteLLMPrimaryKeepsAnalyticsIndependent(t *testing.T) {
 		t.Fatalf("history automatically replayed: %v", err)
 	}
 	uncertain, err := recovered.deliveriesFor("litellm").Delivery("uncertain")
-	if err != nil || uncertain.State != DeliveryAmbiguous {
-		t.Fatalf("legacy claim changed: %+v %v", uncertain, err)
+	if err != nil || uncertain.State != DeliveryAcknowledged {
+		t.Fatalf("retired destination still blocks retention: %+v %v", uncertain, err)
 	}
 	ids, err := recovered.deliveriesFor("analytics").ReadyIDs(64)
 	if err != nil || len(ids) != 2 {
@@ -190,5 +193,42 @@ func TestRepricingUpdatesDeliveredAnalyticsFact(t *testing.T) {
 	if err != nil || len(ids) != 1 || ids[0] != event.ExecutionID {
 		raw, _ := json.Marshal(updated)
 		t.Fatalf("updated fact not requeued: %v %v %s", ids, err, raw)
+	}
+}
+
+func TestAnalyticsExportRepricesADeliveredUnpricedEvent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = io.WriteString(w, `{"rows":1}`)
+	}))
+	t.Cleanup(server.Close)
+
+	cfg := legacyOutboxConfig(t)
+	cfg.Analytics.URL = server.URL
+	o := openTestOutbox(t, cfg)
+	event := exportEvent("later")
+	event.Estimate = &CostEstimate{Status: "unpriced"}
+	if err := o.Insert(event); err != nil {
+		t.Fatal(err)
+	}
+	exporter := NewAnalyticsExporter(o, cfg.Analytics)
+	if err := exporter.ExportOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	o.prices.Store(testPriceBook(t, config.PriceRate{
+		Provider: "openai", Model: "gpt-4o", Currency: "USD",
+		Input: priceString("1"), CacheRead: priceString("1"), Output: priceString("1"),
+	}))
+	exporter.lastReprice = time.Time{}
+	if err := exporter.ExportOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := o.Event("later")
+	if err != nil || stored.Estimate == nil || stored.Estimate.Status != "priced" {
+		t.Fatalf("delivered event stayed unpriced: %+v %v", stored.Estimate, err)
+	}
+	delivery, err := o.deliveriesFor("analytics").Delivery("later")
+	if err != nil || delivery.State != DeliveryAcknowledged || delivery.Attempts != 2 {
+		t.Fatalf("repriced fact was not sent again: %+v %v", delivery, err)
 	}
 }

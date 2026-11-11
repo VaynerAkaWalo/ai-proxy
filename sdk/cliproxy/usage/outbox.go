@@ -280,6 +280,26 @@ func (o *Outbox) Event(id string) (AccountingEvent, error) {
 	return event, err
 }
 
+func (o *Outbox) unpricedEventIDs(limit int) ([]string, error) {
+	ids := []string{}
+	err := o.view(func(tx *bolt.Tx) error {
+		return tx.Bucket(eventsBucket).ForEach(func(key, raw []byte) error {
+			if len(ids) >= limit {
+				return nil
+			}
+			var event AccountingEvent
+			if err := json.Unmarshal(raw, &event); err != nil {
+				return err
+			}
+			if event.Estimate != nil && event.Estimate.Status == "unpriced" {
+				ids = append(ids, event.ExecutionID)
+			}
+			return nil
+		})
+	})
+	return ids, err
+}
+
 func (o *Outbox) repriceUnpricedEvent(id string) (AccountingEvent, error) {
 	var event AccountingEvent
 	err := o.update(func(tx *bolt.Tx) error {

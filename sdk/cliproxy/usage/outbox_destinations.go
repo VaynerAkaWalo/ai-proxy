@@ -104,24 +104,38 @@ func (o *Outbox) initializeDestinations(tx *bolt.Tx) error {
 		}
 	}
 	o.secondaryDeliveries = true
-	if !o.destinationEnabled(o.secondaryDestination()) {
-		return nil
+	if o.destinationEnabled(o.secondaryDestination()) {
+		if err := tx.Bucket(deliveriesBucket).ForEach(func(key, raw []byte) error {
+			if bucket.Get(key) != nil {
+				return nil
+			}
+			var delivery Delivery
+			if err := json.Unmarshal(raw, &delivery); err != nil {
+				return err
+			}
+			if deliveryTerminal(delivery) {
+				return nil
+			}
+			if err := o.checkDisk(tx); err != nil {
+				return err
+			}
+			return putDelivery(bucket, key, Delivery{State: DeliveryPending, UpdatedAt: o.now()})
+		}); err != nil {
+			return err
+		}
 	}
-
-	return tx.Bucket(deliveriesBucket).ForEach(func(key, raw []byte) error {
-		if bucket.Get(key) != nil {
-			return nil
-		}
-		var delivery Delivery
-		if err := json.Unmarshal(raw, &delivery); err != nil {
-			return err
-		}
-		if deliveryTerminal(delivery) {
-			return nil
-		}
-		if err := o.checkDisk(tx); err != nil {
-			return err
-		}
-		return putDelivery(bucket, key, Delivery{State: DeliveryPending, UpdatedAt: o.now()})
-	})
+	if o.primaryDestination == "litellm" && !o.destinationEnabled("litellm") {
+		return tx.Bucket(deliveriesBucket).ForEach(func(key, raw []byte) error {
+			var delivery Delivery
+			if err := json.Unmarshal(raw, &delivery); err != nil {
+				return err
+			}
+			if deliveryTerminal(delivery) {
+				return nil
+			}
+			delivery.State, delivery.UpdatedAt, delivery.NextAttemptAt = DeliveryAcknowledged, o.now(), time.Time{}
+			return putDelivery(tx.Bucket(deliveriesBucket), key, delivery)
+		})
+	}
+	return nil
 }
