@@ -122,7 +122,7 @@ func assertSafeSucceededEvent(t *testing.T, c contract, events []usage.Accountin
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{gatewayClientKey, "acct-", gatewayAdminSecret, "Bearer", "weather in Oslo"} {
+	for _, secret := range []string{gatewayClientKey, "acct-", "Bearer", "weather in Oslo"} {
 		if strings.Contains(string(raw), secret) {
 			t.Errorf("accounting event leaks %q: %s", secret, raw)
 		}

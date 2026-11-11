@@ -25,23 +25,16 @@ import (
 	sdkconfig "github.com/router-for-me/CLIProxyAPI/v8/sdk/config"
 )
 
-const (
-	gatewayClientKey   = "harness-client-key"
-	gatewayAdminEnvKey = "AI_PROXY_HARNESS_LITELLM_ADMIN_KEY"
-	gatewayAdminSecret = "harness-admin-secret"
-)
+const gatewayClientKey = "harness-client-key"
 
 type accountingMode string
 
 const (
-	accountingDisabled       accountingMode = "disabled"
-	accountingEnabled        accountingMode = "enabled"
-	accountingLiteLLMOffline accountingMode = "litellm-offline"
-	accountingLiteLLMStalled accountingMode = "litellm-stalled"
-	accountingLiteLLMFailing accountingMode = "litellm-failing"
+	accountingDisabled accountingMode = "disabled"
+	accountingEnabled  accountingMode = "enabled"
 )
 
-var allAccountingModes = []accountingMode{accountingDisabled, accountingEnabled, accountingLiteLLMOffline, accountingLiteLLMStalled, accountingLiteLLMFailing}
+var allAccountingModes = []accountingMode{accountingDisabled, accountingEnabled}
 
 var newServerMu sync.Mutex
 
@@ -60,12 +53,10 @@ type upstreamAccount struct {
 }
 
 type gatewayOptions struct {
-	mode          accountingMode
-	upstreamURL   string
-	accounts      []upstreamAccount
-	dataPath      string
-	receiver      *fakeLiteLLM
-	exportClients bool
+	mode        accountingMode
+	upstreamURL string
+	accounts    []upstreamAccount
+	dataPath    string
 }
 
 type gateway struct {
@@ -73,17 +64,10 @@ type gateway struct {
 	URL      string
 	manager  *cliproxyauth.Manager
 	outbox   *usage.Outbox
-	exporter *usage.LiteLLMExporter
-	receiver *fakeLiteLLM
 	front    *httptest.Server
 	detach   func()
 	stopped  bool
 	dataPath string
-}
-
-func fixtureKeyHash() string {
-	sum := sha256.Sum256([]byte("harness-litellm-virtual-key"))
-	return hex.EncodeToString(sum[:])
 }
 
 func fixturePricing() config.PricingConfig {
@@ -126,7 +110,7 @@ func newGateway(t *testing.T, opts gatewayOptions) *gateway {
 	newServerMu.Unlock()
 	front := httptest.NewServer(server.Handler())
 
-	g := &gateway{t: t, URL: front.URL, manager: manager, front: front, receiver: opts.receiver}
+	g := &gateway{t: t, URL: front.URL, manager: manager, front: front}
 	t.Cleanup(g.shutdown)
 	if opts.dataPath == "" {
 		opts.dataPath = filepath.Join(dir, "accounting")
@@ -169,22 +153,6 @@ func (g *gateway) attachAccounting(opts gatewayOptions) {
 	if err := os.MkdirAll(cfg.DataPath, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if opts.mode != accountingEnabled {
-		if g.receiver == nil {
-			g.receiver = newFakeLiteLLM(t, receiverBehaviorFor(opts.mode))
-		}
-		t.Setenv(gatewayAdminEnvKey, gatewayAdminSecret)
-		cfg.LiteLLM = sdkconfig.LiteLLMExporterConfig{
-			Enabled:     true,
-			URL:         g.receiver.URL(),
-			AdminKeyEnv: gatewayAdminEnvKey,
-		}
-		if opts.exportClients {
-			cfg.LiteLLM.Clients = map[string]config.LiteLLMIdentity{
-				clientKeyID(gatewayClientKey): {KeyHash: fixtureKeyHash(), UserID: "harness-user", TeamID: "harness-team"},
-			}
-		}
-	}
 	cfg = cfg.Defaults()
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
@@ -199,11 +167,6 @@ func (g *gateway) attachAccounting(opts gatewayOptions) {
 		t.Fatal(err)
 	}
 	g.outbox, g.detach = outbox, detach
-
-	if opts.mode != accountingEnabled {
-		g.exporter = usage.NewLiteLLMExporter(outbox, cfg.LiteLLM)
-		g.exporter.Start()
-	}
 }
 
 func (g *gateway) shutdown() {
@@ -218,11 +181,6 @@ func (g *gateway) shutdown() {
 	g.detach()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if g.exporter != nil {
-		if err := g.exporter.Stop(ctx); err != nil {
-			g.t.Errorf("exporter did not stop within the shutdown bound: %v", err)
-		}
-	}
 	if err := g.outbox.Close(ctx); err != nil {
 		g.t.Errorf("outbox did not close within the shutdown bound: %v", err)
 	}

@@ -69,10 +69,10 @@ func TestQuotaExhaustionIsIndependentOfAccounting(t *testing.T) {
 	for _, f := range quotaFixtures(strconv.Itoa(reset)) {
 		t.Run(f.contract.harness+"/"+f.errorType, func(t *testing.T) {
 			var firstDisabled string
-			for _, mode := range []accountingMode{accountingDisabled, accountingEnabled, accountingLiteLLMStalled} {
+			for _, mode := range []accountingMode{accountingDisabled, accountingEnabled} {
 				upstream := quotaUpstream(t, f, nil)
 				recorder := recordAccounting(t)
-				g := newGateway(t, gatewayOptions{mode: mode, upstreamURL: upstream.server.URL, accounts: contractAccounts("quota-"+string(mode), f.contract), exportClients: true})
+				g := newGateway(t, gatewayOptions{mode: mode, upstreamURL: upstream.server.URL, accounts: contractAccounts("quota-"+string(mode), f.contract)})
 
 				first := post(t, context.Background(), g.URL+f.contract.path, f.contract.request(false), nil)
 				if first.Status != http.StatusTooManyRequests {

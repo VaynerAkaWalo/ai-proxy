@@ -280,6 +280,42 @@ func (o *Outbox) Event(id string) (AccountingEvent, error) {
 	return event, err
 }
 
+func catalogMightPrice(estimate *CostEstimate) bool {
+	if estimate == nil || estimate.Status != "unpriced" {
+		return false
+	}
+	for _, missing := range estimate.Missing {
+		switch missing {
+		case "usage", "valid_usage", "unclassified_usage":
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+func (o *Outbox) unpricedEventIDs(after string, limit int) ([]string, error) {
+	ids := []string{}
+	err := o.view(func(tx *bolt.Tx) error {
+		cursor := tx.Bucket(eventsBucket).Cursor()
+		key, raw := cursor.Seek([]byte(after))
+		if after != "" && key != nil && string(key) == after {
+			key, raw = cursor.Next()
+		}
+		for ; key != nil && len(ids) < limit; key, raw = cursor.Next() {
+			var event AccountingEvent
+			if err := json.Unmarshal(raw, &event); err != nil {
+				return err
+			}
+			if catalogMightPrice(event.Estimate) {
+				ids = append(ids, event.ExecutionID)
+			}
+		}
+		return nil
+	})
+	return ids, err
+}
+
 func (o *Outbox) repriceUnpricedEvent(id string) (AccountingEvent, error) {
 	var event AccountingEvent
 	err := o.update(func(tx *bolt.Tx) error {
@@ -298,7 +334,7 @@ func (o *Outbox) repriceUnpricedEvent(id string) (AccountingEvent, error) {
 
 		var analyticsDelivery *Delivery
 		analyticsBucket := o.deliveriesFor("analytics").bucket
-		if o.secondaryDeliveries {
+		if o.cfg.Analytics.Enabled {
 			if raw := tx.Bucket(analyticsBucket).Get(key); raw != nil {
 				var delivery Delivery
 				if err := json.Unmarshal(raw, &delivery); err != nil {

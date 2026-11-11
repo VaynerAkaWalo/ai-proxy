@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"sync"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -16,14 +17,38 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-func dualExporterConfig(t *testing.T) config.AccountingOutboxConfig {
-	t.Helper()
+func exportEvent(id string) AccountingEvent {
+	amount := "0.000123456"
+	return AccountingEvent{SchemaVersion: 1, ExecutionID: id, StartedAt: time.Unix(1700000000, 0), CompletedAt: time.Unix(1700000001, 0), ExecutedModel: "gpt-4o", Provider: "openai", ClientKeyID: "local-client", Status: "succeeded", Tokens: &AccountingTokens{Breakdown: NewSubsetTokenBreakdown(10, 2, 0, 5, 1, 15), Evidence: map[string]int64{"usage.prompt_tokens": 10}}, Estimate: &CostEstimate{Status: "priced", Kind: "api_equivalent_estimate", Currency: "USD", Amount: &amount}}
+}
 
+func legacyOutboxConfig(t *testing.T) config.AccountingOutboxConfig {
+	t.Helper()
 	return config.AccountingOutboxConfig{
 		Enabled: true, DataPath: t.TempDir(), RetentionHours: 1,
-		LiteLLM:   exporterConfig("http://localhost:4000"),
 		Analytics: analyticsConfig("http://localhost:3000"),
 	}
+}
+
+func reopenAsLegacyLiteLLMPrimary(t *testing.T, cfg config.AccountingOutboxConfig) *Outbox {
+	t.Helper()
+	cfg.Analytics.Enabled = false
+	o := openTestOutbox(t, cfg)
+	if err := o.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	db, err := bolt.Open(filepath.Join(cfg.DataPath, "accounting.db"), 0600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(destinationsBucket).Put(primaryDestinationKey, []byte("litellm"))
+	})
+	if closeErr := db.Close(); err != nil || closeErr != nil {
+		t.Fatal(err, closeErr)
+	}
+	cfg.Analytics.Enabled = true
+	return openTestOutbox(t, cfg)
 }
 
 func resolveQueue(t *testing.T, queue deliveryQueue, id string, state DeliveryState) {
@@ -41,100 +66,8 @@ func resolveQueue(t *testing.T, queue deliveryQueue, id string, state DeliverySt
 	}
 }
 
-func TestDualExportersRetryIndependently(t *testing.T) {
-	t.Setenv("TEST_LITELLM_ADMIN", "test-admin")
-	for _, failAt := range []string{"analytics", "litellm"} {
-		t.Run(failAt, func(t *testing.T) {
-			calls := map[string]int{}
-			var mu sync.Mutex
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				_, _ = io.Copy(io.Discard, r.Body)
-				destination := "analytics"
-				if r.URL.Path == "/v1/rust_control_plane/logs" {
-					destination = "litellm"
-				}
-				mu.Lock()
-				calls[destination]++
-				attempt := calls[destination]
-				mu.Unlock()
-
-				if destination == failAt && attempt == 1 {
-					w.WriteHeader(503)
-					return
-				}
-				if destination == "analytics" {
-					_, _ = io.WriteString(w, `{"rows":1}`)
-				} else {
-					_, _ = io.WriteString(w, `{"processed":1,"failed":0,"failures":[]}`)
-				}
-			}))
-			defer server.Close()
-
-			cfg := dualExporterConfig(t)
-			cfg.Analytics.URL, cfg.LiteLLM.URL = server.URL, server.URL
-			o := openTestOutbox(t, cfg)
-			now := time.Unix(1800000000, 0)
-			o.now = func() time.Time { return now }
-			if err := o.Insert(exportEvent("both")); err != nil {
-				t.Fatal(err)
-			}
-			analytics := NewAnalyticsExporter(o, cfg.Analytics)
-			litellm := NewLiteLLMExporter(o, cfg.LiteLLM)
-			results := make(chan error, 2)
-			go func() { results <- analytics.ExportOnce(context.Background()) }()
-			go func() { results <- litellm.ExportOnce(context.Background()) }()
-			for i := 0; i < 2; i++ {
-				if err := <-results; err != nil {
-					t.Fatal(err)
-				}
-			}
-
-			stats, err := o.Stats()
-			if err != nil || stats.Backlog != 1 {
-				t.Fatalf("missing failed destination backlog: %+v %v", stats, err)
-			}
-			now = now.Add(2 * time.Hour)
-			if err := o.Prune(); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := o.Event("both"); err != nil {
-				t.Fatalf("pruned event before both deliveries completed: %v", err)
-			}
-			if err := analytics.ExportOnce(context.Background()); err != nil {
-				t.Fatal(err)
-			}
-			if err := litellm.ExportOnce(context.Background()); err != nil {
-				t.Fatal(err)
-			}
-
-			mu.Lock()
-			for destination, count := range calls {
-				expected := 1
-				if destination == failAt {
-					expected = 2
-				}
-				if count != expected {
-					t.Errorf("%s delivered %d times, wanted %d", destination, count, expected)
-				}
-			}
-			mu.Unlock()
-			stats, err = o.Stats()
-			if err != nil || stats.Backlog != 0 {
-				t.Fatalf("backlog not cleared: %+v %v", stats, err)
-			}
-			now = now.Add(2 * time.Hour)
-			if err := o.Prune(); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := o.Event("both"); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("completed event not pruned: %v", err)
-			}
-		})
-	}
-}
-
-func TestDualExporterMigrationPreservesLegacyAcknowledgements(t *testing.T) {
-	cfg := dualExporterConfig(t)
+func TestLegacyLiteLLMPrimaryKeepsAnalyticsIndependent(t *testing.T) {
+	cfg := legacyOutboxConfig(t)
 	cfg.Analytics.Enabled = false
 	o := openTestOutbox(t, cfg)
 	for _, id := range []string{"history", "pending", "uncertain"} {
@@ -142,29 +75,42 @@ func TestDualExporterMigrationPreservesLegacyAcknowledgements(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	resolveQueue(t, o.deliveriesFor("litellm"), "history", DeliveryAcknowledged)
-	if claimed, err := o.Claim("uncertain"); err != nil || !claimed {
-		t.Fatal(err)
-	}
-	if err := o.update(func(tx *bolt.Tx) error { return tx.DeleteBucket(destinationsBucket) }); err != nil {
-		t.Fatal(err)
-	}
 	if err := o.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	db, err := bolt.Open(filepath.Join(cfg.DataPath, "accounting.db"), 0600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(destinationsBucket).Put(primaryDestinationKey, []byte("litellm"))
+	})
+	if closeErr := db.Close(); err != nil || closeErr != nil {
+		t.Fatal(err, closeErr)
+	}
+
+	cfg.Analytics.Enabled = false
+	legacy := openTestOutbox(t, cfg)
+	resolveQueue(t, legacy.deliveriesFor("litellm"), "history", DeliveryAcknowledged)
+	if claimed, err := legacy.Claim("uncertain"); err != nil || !claimed {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
 	cfg.Analytics.Enabled = true
 	recovered := openTestOutbox(t, cfg)
-	legacy, err := recovered.deliveriesFor("litellm").Delivery("history")
-	if err != nil || legacy.State != DeliveryAcknowledged {
-		t.Fatalf("legacy acknowledgement changed: %+v %v", legacy, err)
+	acked, err := recovered.deliveriesFor("litellm").Delivery("history")
+	if err != nil || acked.State != DeliveryAcknowledged {
+		t.Fatalf("legacy acknowledgement changed: %+v %v", acked, err)
 	}
 	if _, err := recovered.deliveriesFor("analytics").Delivery("history"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("history automatically replayed: %v", err)
 	}
-	legacy, err = recovered.deliveriesFor("litellm").Delivery("uncertain")
-	if err != nil || legacy.State != DeliveryAmbiguous {
-		t.Fatalf("unsafe LiteLLM retry: %+v %v", legacy, err)
+	uncertain, err := recovered.deliveriesFor("litellm").Delivery("uncertain")
+	if err != nil || uncertain.State != DeliveryAcknowledged {
+		t.Fatalf("retired destination still blocks retention: %+v %v", uncertain, err)
 	}
 	ids, err := recovered.deliveriesFor("analytics").ReadyIDs(64)
 	if err != nil || len(ids) != 2 {
@@ -172,80 +118,48 @@ func TestDualExporterMigrationPreservesLegacyAcknowledgements(t *testing.T) {
 	}
 }
 
-func TestDualExporterRestartRequeuesOnlyAnalytics(t *testing.T) {
-	cfg := dualExporterConfig(t)
-	o := openTestOutbox(t, cfg)
+func TestLegacyLiteLLMRestartRequeuesOnlyAnalytics(t *testing.T) {
+	cfg := legacyOutboxConfig(t)
+	o := reopenAsLegacyLiteLLMPrimary(t, cfg)
 	if err := o.Insert(exportEvent("crashed")); err != nil {
 		t.Fatal(err)
 	}
-	for _, destination := range []string{"litellm", "analytics"} {
-		if claimed, err := o.deliveriesFor(destination).Claim("crashed"); err != nil || !claimed {
-			t.Fatal(err)
-		}
+	if claimed, err := o.deliveriesFor("analytics").Claim("crashed"); err != nil || !claimed {
+		t.Fatal(err)
 	}
 	if err := o.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
 	recovered := openTestOutbox(t, cfg)
-	for _, destination := range []string{"litellm", "analytics"} {
-		delivery, err := recovered.deliveriesFor(destination).Delivery("crashed")
-		expected := DeliveryAmbiguous
-		if destination == "analytics" {
-			expected = DeliveryRetryable
-		}
-		if err != nil || delivery.State != expected || delivery.Attempts != 1 {
-			t.Fatalf("%s: %+v %v", destination, delivery, err)
-		}
+	retired, err := recovered.deliveriesFor("litellm").Delivery("crashed")
+	if err != nil || retired.State != DeliveryAcknowledged {
+		t.Fatalf("retired destination: %+v %v", retired, err)
+	}
+	analytics, err := recovered.deliveriesFor("analytics").Delivery("crashed")
+	if err != nil || analytics.State != DeliveryRetryable || analytics.Attempts != 1 {
+		t.Fatalf("analytics: %+v %v", analytics, err)
 	}
 }
 
-func TestDualExporterDestinationOwnershipSurvivesConfigChanges(t *testing.T) {
-	for _, primary := range []string{"analytics", "litellm"} {
-		t.Run(primary, func(t *testing.T) {
-			cfg := dualExporterConfig(t)
-			cfg.Analytics.Enabled = primary == "analytics"
-			cfg.LiteLLM.Enabled = primary == "litellm"
-			o := openTestOutbox(t, cfg)
-			if err := o.Insert(exportEvent("old")); err != nil {
-				t.Fatal(err)
-			}
-			resolveQueue(t, o.deliveriesFor(primary), "old", DeliveryAcknowledged)
-			if err := o.Close(context.Background()); err != nil {
-				t.Fatal(err)
-			}
-
-			cfg.Analytics.Enabled, cfg.LiteLLM.Enabled = true, true
-			both := openTestOutbox(t, cfg)
-			if err := both.Insert(exportEvent("new")); err != nil {
-				t.Fatal(err)
-			}
-			other := both.secondaryDestination()
-			resolveQueue(t, both.deliveriesFor(primary), "new", DeliveryAcknowledged)
-			resolveQueue(t, both.deliveriesFor(other), "new", DeliveryRetryable)
-			if err := both.Close(context.Background()); err != nil {
-				t.Fatal(err)
-			}
-
-			cfg.Analytics.Enabled, cfg.LiteLLM.Enabled = other == "analytics", other == "litellm"
-			recovered := openTestOutbox(t, cfg)
-			ids, err := recovered.deliveriesFor(other).ReadyIDs(64)
-			if err != nil || len(ids) != 1 || ids[0] != "new" {
-				t.Fatalf("wrong destination backlog after config change: %v %v", ids, err)
-			}
-			if err := recovered.Insert(exportEvent("only-secondary")); err != nil {
-				t.Fatal(err)
-			}
-			delivery, err := recovered.deliveriesFor(primary).Delivery("only-secondary")
-			if err != nil || delivery.State != DeliveryAcknowledged {
-				t.Fatalf("disabled destination added a new obligation: %+v %v", delivery, err)
-			}
-		})
+func TestDisabledLegacyDestinationDoesNotAddNewObligations(t *testing.T) {
+	cfg := legacyOutboxConfig(t)
+	o := reopenAsLegacyLiteLLMPrimary(t, cfg)
+	if err := o.Insert(exportEvent("new")); err != nil {
+		t.Fatal(err)
+	}
+	primary, err := o.deliveriesFor("litellm").Delivery("new")
+	if err != nil || primary.State != DeliveryAcknowledged {
+		t.Fatalf("retired destination stayed pending: %+v %v", primary, err)
+	}
+	ids, err := o.deliveriesFor("analytics").ReadyIDs(64)
+	if err != nil || len(ids) != 1 || ids[0] != "new" {
+		t.Fatalf("analytics backlog: %v %v", ids, err)
 	}
 }
 
-func TestDualExporterRepricingUpdatesDeliveredAnalyticsFact(t *testing.T) {
-	o := openTestOutbox(t, dualExporterConfig(t))
+func TestRepricingUpdatesDeliveredAnalyticsFact(t *testing.T) {
+	o := openTestOutbox(t, legacyOutboxConfig(t))
 	event := exportEvent("unpriced")
 	event.Estimate = &CostEstimate{Status: "unpriced"}
 	if err := o.Insert(event); err != nil {
@@ -280,5 +194,49 @@ func TestDualExporterRepricingUpdatesDeliveredAnalyticsFact(t *testing.T) {
 	if err != nil || len(ids) != 1 || ids[0] != event.ExecutionID {
 		raw, _ := json.Marshal(updated)
 		t.Fatalf("updated fact not requeued: %v %v %s", ids, err, raw)
+	}
+}
+
+func TestAnalyticsExportRepricesADeliveredUnpricedEvent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = io.WriteString(w, `{"rows":1}`)
+	}))
+	t.Cleanup(server.Close)
+
+	cfg := legacyOutboxConfig(t)
+	cfg.Analytics.URL = server.URL
+	o := openTestOutbox(t, cfg)
+	for i := range 64 {
+		failed := exportEvent(fmt.Sprintf("fail-%02d", i))
+		failed.Estimate = &CostEstimate{Status: "unpriced", Missing: []string{"usage"}}
+		if err := o.Insert(failed); err != nil {
+			t.Fatal(err)
+		}
+	}
+	event := exportEvent("later")
+	event.Estimate = &CostEstimate{Status: "unpriced", Missing: []string{"model_tier_context_price"}}
+	if err := o.Insert(event); err != nil {
+		t.Fatal(err)
+	}
+	exporter := NewAnalyticsExporter(o, cfg.Analytics)
+	if err := exporter.ExportOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	o.prices.Store(testPriceBook(t, config.PriceRate{
+		Provider: "openai", Model: "gpt-4o", Currency: "USD",
+		Input: priceString("1"), CacheRead: priceString("1"), Output: priceString("1"),
+	}))
+	exporter.lastReprice = time.Time{}
+	if err := exporter.ExportOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := o.Event("later")
+	if err != nil || stored.Estimate == nil || stored.Estimate.Status != "priced" {
+		t.Fatalf("delivered event stayed unpriced: %+v %v", stored.Estimate, err)
+	}
+	delivery, err := o.deliveriesFor("analytics").Delivery("later")
+	if err != nil || delivery.State != DeliveryAcknowledged || delivery.Attempts != 1 {
+		t.Fatalf("repriced fact was not sent: %+v %v", delivery, err)
 	}
 }
