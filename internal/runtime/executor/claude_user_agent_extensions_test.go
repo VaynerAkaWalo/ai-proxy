@@ -8,11 +8,11 @@ import (
 	"testing"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 func TestClaudeExecutorUserAgentFieldsPreserveNativePayload(t *testing.T) {
