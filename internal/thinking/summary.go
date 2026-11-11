@@ -207,7 +207,7 @@ func applySummaryConfigForProvider(body []byte, format, model, provider string, 
 		value := "omitted"
 		if enabled {
 			value = "summarized"
-			if strings.EqualFold(strings.TrimSpace(doc.Get("thinking.display").String()), "updates") {
+			if strings.EqualFold(strings.TrimSpace(gjson.GetBytes(body, "thinking.display").String()), "updates") {
 				value = "updates"
 			}
 		}
