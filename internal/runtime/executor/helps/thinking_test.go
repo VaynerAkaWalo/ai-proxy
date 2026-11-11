@@ -121,11 +121,11 @@ func TestApplyThinkingWithSourcePayload_AntigravityClaudeThinkingDisplayUpdates(
 	if err != nil {
 		t.Fatalf("ApplyThinkingWithSourcePayload() error = %v", err)
 	}
-	include := ojson.GetBytes(out, "request.generationConfig.thinkingConfig.includeThoughts")
+	include := gjson.GetBytes(out, "request.generationConfig.thinkingConfig.includeThoughts")
 	if !include.Exists() || !include.Bool() {
 		t.Fatalf("includeThoughts not enabled: %s", out)
 	}
-	level := ojson.GetBytes(out, "request.generationConfig.thinkingConfig.thinkingLevel").String()
+	level := gjson.GetBytes(out, "request.generationConfig.thinkingConfig.thinkingLevel").String()
 	if level != "high" {
 		t.Fatalf("thinkingLevel = %q, want high: %s", level, out)
 	}
