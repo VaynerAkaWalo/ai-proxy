@@ -4,9 +4,12 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -17,6 +20,52 @@ import (
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 )
+
+type unavailableQuotaInventoryStore struct{}
+
+func (*unavailableQuotaInventoryStore) List(context.Context) ([]*coreauth.Auth, error) {
+	return nil, errors.New("credential store unavailable")
+}
+
+func (*unavailableQuotaInventoryStore) Save(_ context.Context, auth *coreauth.Auth) (string, error) {
+	return auth.ID, nil
+}
+
+func (*unavailableQuotaInventoryStore) Delete(context.Context, string) error { return nil }
+
+func TestServiceAccountingSamplerStillStartsAfterInitialCredentialLoadFails(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Host: "127.0.0.1", AuthDir: dir, AccountingOutbox: config.AccountingOutboxConfig{
+		Enabled: true, DataPath: t.TempDir(), Analytics: config.AnalyticsExporterConfig{
+			Enabled: true, URL: "http://127.0.0.1:1", Dataset: "test/usage", QuotaSnapshots: config.QuotaSnapshotsConfig{Enabled: true},
+		},
+	}}
+	var service *Service
+	service, err := NewBuilder().WithConfig(cfg).WithConfigPath(configPath).
+		WithCoreAuthManager(coreauth.NewManager(&unavailableQuotaInventoryStore{}, nil, nil)).
+		WithWatcherFactory(func(string, string, func(*config.Config)) (*WatcherWrapper, error) {
+			return &WatcherWrapper{start: func(context.Context) error { return nil }, stop: func() error { return nil }}, nil
+		}).
+		WithHooks(Hooks{OnBeforeStart: func(*config.Config) {
+			if service.quotaSampler == nil {
+				t.Error("initial credential load failure permanently disabled sampling")
+			}
+			cancel()
+		}}).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := service.Run(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("service run: %v", err)
+	}
+}
 
 func TestServiceAccountingSubscriptionsFollowCredentialsWithoutQuotaWindows(t *testing.T) {
 	outbox, err := usage.OpenOutbox(config.AccountingOutboxConfig{DataPath: t.TempDir()})
@@ -31,9 +80,9 @@ func TestServiceAccountingSubscriptionsFollowCredentialsWithoutQuotaWindows(t *t
 	sampler := newQuotaSnapshotSampler(outbox, manager, config.QuotaSnapshotsConfig{PlanPricesUSD: map[string]string{"xai:SuperGrok": "30"}}, func() *config.Config { return &config.Config{} })
 	sampler.probes["grok"] = &quotaProbeState{result: &quotaprobe.Result{Plan: "SuperGrok"}}
 
-	sampler.scan()
+	sampler.scan(context.Background())
 	manager.Remove(context.Background(), "grok")
-	sampler.scan()
+	sampler.scan(context.Background())
 
 	var rows []usage.QuotaSnapshot
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

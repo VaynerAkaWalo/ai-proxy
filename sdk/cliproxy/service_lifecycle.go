@@ -90,12 +90,9 @@ func (s *Service) Run(ctx context.Context) error {
 	s.configureCooldownStateStore(cfg)
 
 	s.registerPluginAuthParser()
-	authStoreLoaded := homeEnabled
 	if s.coreManager != nil && !homeEnabled {
 		if errLoad := s.coreManager.Load(ctx); errLoad != nil {
 			log.Warnf("failed to load auth store: %v", errLoad)
-		} else {
-			authStoreLoaded = true
 		}
 		s.registerConfigAPIKeyAuths(coreauth.WithSkipPersist(ctx), cfg)
 		if cfg != nil && cfg.SaveCooldownStatus {
@@ -130,9 +127,7 @@ func (s *Service) Run(ctx context.Context) error {
 		}
 	}
 
-	if authStoreLoaded {
-		s.startQuotaSampler()
-	}
+	s.startQuotaSampler()
 
 	s.ensureWebsocketGateway()
 	if homeEnabled {

@@ -64,7 +64,7 @@ func (q *quotaSnapshotSampler) Start() {
 		defer close(q.done)
 		ticker := time.NewTicker(q.cfg.QuotaSnapshotInterval())
 		defer ticker.Stop()
-		q.scan()
+		q.scan(ctx)
 		for {
 			select {
 			case <-ctx.Done():
@@ -72,7 +72,7 @@ func (q *quotaSnapshotSampler) Start() {
 			case auth := <-q.changed:
 				q.observe(auth)
 			case <-ticker.C:
-				q.scan()
+				q.scan(ctx)
 			}
 		}
 	}()
@@ -97,12 +97,19 @@ func (q *quotaSnapshotSampler) notify(auth *coreauth.Auth) {
 	}
 }
 
-func (q *quotaSnapshotSampler) scan() {
+func (q *quotaSnapshotSampler) scan(ctx context.Context) {
 	auths := q.manager.List()
 	for _, auth := range auths {
 		q.observe(auth)
 	}
 	if q.config().Home.Enabled {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	auths, err := q.manager.ListWithStored(ctx)
+	if err != nil {
+		log.WithError(err).Warn("subscription inventory read failed, will retry")
 		return
 	}
 
