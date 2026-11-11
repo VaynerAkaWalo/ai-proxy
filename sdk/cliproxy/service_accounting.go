@@ -45,11 +45,20 @@ func (s *Service) startAccountingOutbox() error {
 		s.accountingExporter = noopAccountingExporter{}
 	}
 	s.accountingExporter.Start()
-	if cfg.Analytics.Enabled && cfg.Analytics.QuotaSnapshots.Enabled && s.coreManager != nil {
-		s.quotaSampler = newQuotaSnapshotSampler(outbox, s.coreManager, cfg.Analytics.QuotaSnapshots, s.currentConfig)
+	return nil
+}
+
+func (s *Service) startQuotaSampler() {
+	s.accountingMu.Lock()
+	defer s.accountingMu.Unlock()
+	if s.accountingOutbox == nil || s.quotaSampler != nil || s.coreManager == nil {
+		return
+	}
+	cfg := s.cfg.AccountingOutbox.Analytics
+	if cfg.Enabled && cfg.QuotaSnapshots.Enabled {
+		s.quotaSampler = newQuotaSnapshotSampler(s.accountingOutbox, s.coreManager, cfg.QuotaSnapshots, s.currentConfig)
 		s.quotaSampler.Start()
 	}
-	return nil
 }
 
 func (s *Service) stopAccountingOutbox(ctx context.Context) {

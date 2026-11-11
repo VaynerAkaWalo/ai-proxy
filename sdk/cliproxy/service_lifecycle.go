@@ -127,7 +127,7 @@ func (s *Service) Run(ctx context.Context) error {
 		}
 	}
 
-	// legacy clients removed; no caches to refresh
+	s.startQuotaSampler()
 
 	s.ensureWebsocketGateway()
 	if homeEnabled {

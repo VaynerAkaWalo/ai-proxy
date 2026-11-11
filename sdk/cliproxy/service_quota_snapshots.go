@@ -64,7 +64,7 @@ func (q *quotaSnapshotSampler) Start() {
 		defer close(q.done)
 		ticker := time.NewTicker(q.cfg.QuotaSnapshotInterval())
 		defer ticker.Stop()
-		q.scan()
+		q.scan(ctx)
 		for {
 			select {
 			case <-ctx.Done():
@@ -72,7 +72,7 @@ func (q *quotaSnapshotSampler) Start() {
 			case auth := <-q.changed:
 				q.observe(auth)
 			case <-ticker.C:
-				q.scan()
+				q.scan(ctx)
 			}
 		}
 	}()
@@ -97,9 +97,39 @@ func (q *quotaSnapshotSampler) notify(auth *coreauth.Auth) {
 	}
 }
 
-func (q *quotaSnapshotSampler) scan() {
-	for _, auth := range q.manager.List() {
+func (q *quotaSnapshotSampler) scan(ctx context.Context) {
+	auths := q.manager.List()
+	for _, auth := range auths {
 		q.observe(auth)
+	}
+	if q.config().Home.Enabled {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	auths, err := q.manager.ListWithStored(ctx)
+	if err != nil {
+		log.WithError(err).Warn("subscription inventory read failed, will retry")
+		return
+	}
+
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	rows := make([]usage.QuotaSnapshot, 0, len(auths))
+	for _, auth := range auths {
+		planName := auth.QuotaPlan()
+		if state := q.probes[auth.ID]; state != nil && state.result != nil && state.result.Plan != "" {
+			planName = coreauth.DisplayQuotaPlan(state.result.Plan)
+		}
+		provider := strings.ToLower(strings.TrimSpace(auth.Provider))
+		row := usage.QuotaSnapshot{Provider: provider, AccountID: usage.AccountingAccountID(auth.ID)}
+		if planName != "" {
+			row.Plan, row.PlanPriceUSD = &planName, q.planPrice(provider, planName)
+		}
+		rows = append(rows, row)
+	}
+	if err := q.outbox.ReconcileSubscriptions(rows, time.Now()); err != nil {
+		log.WithError(err).Warn("subscription inventory persistence failed, will retry")
 	}
 }
 

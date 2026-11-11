@@ -4,18 +4,116 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/quotaprobe"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
 )
+
+type unavailableQuotaInventoryStore struct{}
+
+func (*unavailableQuotaInventoryStore) List(context.Context) ([]*coreauth.Auth, error) {
+	return nil, errors.New("credential store unavailable")
+}
+
+func (*unavailableQuotaInventoryStore) Save(_ context.Context, auth *coreauth.Auth) (string, error) {
+	return auth.ID, nil
+}
+
+func (*unavailableQuotaInventoryStore) Delete(context.Context, string) error { return nil }
+
+func TestServiceAccountingSamplerStillStartsAfterInitialCredentialLoadFails(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Host: "127.0.0.1", AuthDir: dir, AccountingOutbox: config.AccountingOutboxConfig{
+		Enabled: true, DataPath: t.TempDir(), Analytics: config.AnalyticsExporterConfig{
+			Enabled: true, URL: "http://127.0.0.1:1", Dataset: "test/usage", QuotaSnapshots: config.QuotaSnapshotsConfig{Enabled: true},
+		},
+	}}
+	var service *Service
+	service, err := NewBuilder().WithConfig(cfg).WithConfigPath(configPath).
+		WithCoreAuthManager(coreauth.NewManager(&unavailableQuotaInventoryStore{}, nil, nil)).
+		WithWatcherFactory(func(string, string, func(*config.Config)) (*WatcherWrapper, error) {
+			return &WatcherWrapper{start: func(context.Context) error { return nil }, stop: func() error { return nil }}, nil
+		}).
+		WithHooks(Hooks{OnBeforeStart: func(*config.Config) {
+			if service.quotaSampler == nil {
+				t.Error("initial credential load failure permanently disabled sampling")
+			}
+			cancel()
+		}}).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := service.Run(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("service run: %v", err)
+	}
+}
+
+func TestServiceAccountingSubscriptionsFollowCredentialsWithoutQuotaWindows(t *testing.T) {
+	outbox, err := usage.OpenOutbox(config.AccountingOutboxConfig{DataPath: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = outbox.Close(context.Background()) })
+	manager := coreauth.NewManager(nil, nil, nil)
+	if _, err := manager.Register(context.Background(), &coreauth.Auth{ID: "grok", Provider: "xai", Disabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	sampler := newQuotaSnapshotSampler(outbox, manager, config.QuotaSnapshotsConfig{PlanPricesUSD: map[string]string{"xai:SuperGrok": "30"}}, func() *config.Config { return &config.Config{} })
+	sampler.probes["grok"] = &quotaProbeState{result: &quotaprobe.Result{Plan: "SuperGrok"}}
+
+	sampler.scan(context.Background())
+	manager.Remove(context.Background(), "grok")
+	sampler.scan(context.Background())
+
+	var rows []usage.QuotaSnapshot
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lines := bufio.NewScanner(r.Body)
+		count := 0
+		for lines.Scan() {
+			var row usage.QuotaSnapshot
+			if err := json.Unmarshal(lines.Bytes(), &row); err != nil {
+				t.Error(err)
+			}
+			rows = append(rows, row)
+			count++
+		}
+		_, _ = fmt.Fprintf(w, `{"rows":%d}`, count)
+	}))
+	defer server.Close()
+	exporter := usage.NewAnalyticsExporter(outbox, config.AnalyticsExporterConfig{Enabled: true, URL: server.URL, Dataset: "test/usage", QuotaSnapshots: config.QuotaSnapshotsConfig{Enabled: true}})
+	if err := exporter.ExportOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(rows) != 2 {
+		t.Fatalf("expected subscription and retirement without quota windows, got %v", rows)
+	}
+	if rows[0].Window != "subscription" || *rows[0].PlanPriceUSD != "30" || rows[0].AccountID != usage.AccountingAccountID("grok") {
+		t.Fatalf("subscription: %+v", rows[0])
+	}
+	if rows[1].Window != "subscription" || *rows[1].PlanPriceUSD != "0" || !rows[1].ObservedAt.After(rows[0].ObservedAt) {
+		t.Fatalf("retirement: %+v", rows[1])
+	}
+}
 
 func TestQuotaResetsShiftingByLessThanAMinuteAreTheSameReset(t *testing.T) {
 	reset := time.Unix(1700000000, 0)

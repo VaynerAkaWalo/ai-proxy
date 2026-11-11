@@ -93,7 +93,7 @@
               {
                 "dimension": "quota_window",
                 "op": "eq",
-                "value": "weekly"
+                "value": "subscription"
               }
             ]
           },

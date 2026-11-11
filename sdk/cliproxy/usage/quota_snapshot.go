@@ -48,33 +48,38 @@ func (o *Outbox) EnqueueQuotaSnapshots(rows []QuotaSnapshot) error {
 			return err
 		}
 		for _, row := range rows {
-			row.ObservedAt = row.ObservedAt.UTC().Truncate(time.Second)
-			if row.ResetsAt != nil {
-				resets := row.ResetsAt.UTC().Truncate(time.Second)
-				row.ResetsAt = &resets
-			}
-			if !row.valid() {
-				return errors.New("invalid quota snapshot")
-			}
-			raw, err := json.Marshal(row)
-			if err != nil {
-				return err
-			}
-			key := row.key()
-			if bucket.Get(key) == nil {
-				if bucket.Sequence() >= MaxQuotaSnapshots {
-					return ErrOutboxFull
-				}
-				if err := bucket.SetSequence(bucket.Sequence() + 1); err != nil {
-					return err
-				}
-			}
-			if err := bucket.Put(key, raw); err != nil {
+			if err := enqueueQuotaSnapshot(bucket, row); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+}
+
+func enqueueQuotaSnapshot(bucket *bolt.Bucket, row QuotaSnapshot) error {
+	row.ObservedAt = row.ObservedAt.UTC().Truncate(time.Second)
+	if row.ResetsAt != nil {
+		resets := row.ResetsAt.UTC().Truncate(time.Second)
+		row.ResetsAt = &resets
+	}
+	if !row.valid() {
+		return errors.New("invalid quota snapshot")
+	}
+
+	raw, err := json.Marshal(row)
+	if err != nil {
+		return err
+	}
+	key := row.key()
+	if bucket.Get(key) == nil {
+		if bucket.Sequence() >= MaxQuotaSnapshots {
+			return ErrOutboxFull
+		}
+		if err := bucket.SetSequence(bucket.Sequence() + 1); err != nil {
+			return err
+		}
+	}
+	return bucket.Put(key, raw)
 }
 
 func (o *Outbox) pendingQuotaSnapshots(limit int) (keys [][]byte, rows []QuotaSnapshot, err error) {
