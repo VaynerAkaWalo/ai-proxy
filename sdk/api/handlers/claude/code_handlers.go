@@ -627,6 +627,12 @@ func (h *ClaudeCodeAPIHandler) WriteErrorResponse(c *gin.Context, msg *interface
 			if len(values) == 0 || handlers.IsCPAReservedResponseHeader(key) {
 				continue
 			}
+			if retryAfter != "" && http.CanonicalHeaderKey(key) == "Retry-After" {
+				var cooldown interface{ IsModelCooldown() bool }
+				if errors.As(msg.Error, &cooldown) && cooldown != nil && cooldown.IsModelCooldown() {
+					continue
+				}
+			}
 			c.Writer.Header().Del(key)
 			for _, value := range values {
 				c.Writer.Header().Add(key, value)
