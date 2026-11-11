@@ -368,6 +368,7 @@ func EnrichContextWithSessionHierarchy(ctx context.Context, headers http.Header,
 		if meta.SessionID != "" && meta.SessionID == meta.ParentSessionID {
 			meta.ParentSessionID = ""
 		}
+		meta.Project = resolveSessionProject(ctx, meta.Project, meta.SessionID, meta.ParentSessionID)
 		ctx = logging.WithClientRequestMetadata(ctx, meta)
 		return util.WithSessionID(ctx, meta.SessionID)
 	}
