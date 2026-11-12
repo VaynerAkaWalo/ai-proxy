@@ -237,6 +237,7 @@ var cwdMarkers = []struct{ start, end string }{
 	{"Working directory: ", "\n"},
 	{"working directory: ", "\n"},
 	{"**Workspace Directories:**\n  - ", "\n"},
+	{"Workspace Path: ", "\n"},
 	{"working in the directory: ", "\n"},
 }
 
