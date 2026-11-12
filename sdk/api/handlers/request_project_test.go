@@ -55,6 +55,37 @@ func TestRequestProjectGrokWorkingDirectory(t *testing.T) {
 	}
 }
 
+func TestSessionProjectGrokWorkspacePath(t *testing.T) {
+	resetRememberedProjects()
+	t.Cleanup(resetRememberedProjects)
+
+	headers := http.Header{"X-Session-Id": []string{"grok-workspace"}}
+	cases := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name:    "worktree workspace",
+			content: "<user_info>\nOS Version: linux\nShell: /bin/bash\nWorkspace Path: /home/dev/.t3/worktrees/barricade/t3-940024c7-6dced654ce12b2bc\nToday's date: 2026-11-12\n</user_info>",
+			want:    "barricade",
+		},
+		{name: "follow-up without workspace", content: "continue", want: "barricade"},
+		{name: "repository workspace", content: "<user_info>\nWorkspace Path: /home/dev/code/ai-proxy\n</user_info>", want: "ai-proxy"},
+		{name: "scratch workspace", content: "<user_info>\nWorkspace Path: /home/dev/.t3/scratch/chat\n</user_info>"},
+		{name: "follow-up after scratch", content: "continue"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := []byte(fmt.Sprintf(`{"messages":[{"role":"user","content":[{"type":"text","text":%q}]}]}`, tc.content))
+			ctx := EnrichContextWithSessionHierarchy(projectTestContext("client-a"), headers, payload, nil)
+			if got := logging.GetClientRequestMetadata(ctx).Project; got != tc.want {
+				t.Fatalf("project = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRequestProjectSystemDirectoryOutranksUserPrompt(t *testing.T) {
 	payload := []byte(`{
 		"messages": [
