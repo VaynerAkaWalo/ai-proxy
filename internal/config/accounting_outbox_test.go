@@ -80,14 +80,6 @@ func TestAnalyticsExporterConfiguration(t *testing.T) {
 		}
 	}
 
-	for _, dataset := range []string{"../prices", "owner/prices?token=secret", cfg.Analytics.Dataset} {
-		invalid := cfg
-		invalid.Analytics.PricesDataset = dataset
-		if err := invalid.Validate(); err == nil {
-			t.Fatalf("accepted prices dataset %q", dataset)
-		}
-	}
-	cfg.Analytics.PricesDataset = "pawel/prices"
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}

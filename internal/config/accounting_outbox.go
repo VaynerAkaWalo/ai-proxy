@@ -41,7 +41,6 @@ type AnalyticsExporterConfig struct {
 	Enabled        bool                 `yaml:"enabled" json:"enabled"`
 	URL            string               `yaml:"url" json:"url"`
 	Dataset        string               `yaml:"dataset" json:"dataset"`
-	PricesDataset  string               `yaml:"prices-dataset" json:"prices-dataset"`
 	TokenEnv       string               `yaml:"token-env" json:"token-env"`
 	ExportProject  bool                 `yaml:"export-project" json:"export-project"`
 	QuotaSnapshots QuotaSnapshotsConfig `yaml:"quota-snapshots" json:"quota-snapshots"`
@@ -109,9 +108,6 @@ func (c AccountingOutboxConfig) Validate() error {
 		u, err := url.Parse(c.Analytics.URL)
 		if !c.Enabled || err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || !analyticsDatasetPattern.MatchString(c.Analytics.Dataset) {
 			return fmt.Errorf("Analytics exporter requires an enabled outbox, HTTP(S) URL without credentials or query, and an owner/name dataset")
-		}
-		if c.Analytics.PricesDataset != "" && (!analyticsDatasetPattern.MatchString(c.Analytics.PricesDataset) || c.Analytics.PricesDataset == c.Analytics.Dataset) {
-			return fmt.Errorf("Analytics prices-dataset must be a different owner/name dataset")
 		}
 	}
 	if c.Analytics.QuotaSnapshots.Enabled && !c.Analytics.Enabled {

@@ -2,12 +2,7 @@ package usage
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -155,88 +150,5 @@ func TestDisabledLegacyDestinationDoesNotAddNewObligations(t *testing.T) {
 	ids, err := o.deliveriesFor("analytics").ReadyIDs(64)
 	if err != nil || len(ids) != 1 || ids[0] != "new" {
 		t.Fatalf("analytics backlog: %v %v", ids, err)
-	}
-}
-
-func TestRepricingUpdatesDeliveredAnalyticsFact(t *testing.T) {
-	o := openTestOutbox(t, legacyOutboxConfig(t))
-	event := exportEvent("unpriced")
-	event.Estimate = &CostEstimate{Status: "unpriced"}
-	if err := o.Insert(event); err != nil {
-		t.Fatal(err)
-	}
-	analytics := o.deliveriesFor("analytics")
-	if claimed, err := analytics.Claim(event.ExecutionID); err != nil || !claimed {
-		t.Fatal(err)
-	}
-	o.prices.Store(testPriceBook(t, config.PriceRate{
-		Provider: "openai", Model: "gpt-4o", Currency: "USD",
-		Input: priceString("1"), CacheRead: priceString("1"), Output: priceString("1"),
-	}))
-
-	inflight, err := o.repriceUnpricedEvent(event.ExecutionID)
-	if err != nil || inflight.Estimate.Status != "unpriced" {
-		t.Fatalf("changed an in-flight payload: %+v %v", inflight.Estimate, err)
-	}
-	delivery, err := analytics.Delivery(event.ExecutionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := analytics.Resolve(event.ExecutionID, delivery.Attempts, DeliveryAcknowledged, time.Time{}); err != nil {
-		t.Fatal(err)
-	}
-	updated, err := o.repriceUnpricedEvent(event.ExecutionID)
-	if err != nil || updated.Estimate.Status != "priced" {
-		t.Fatalf("failed to reprice: %+v %v", updated.Estimate, err)
-	}
-
-	ids, err := analytics.ReadyIDs(64)
-	if err != nil || len(ids) != 1 || ids[0] != event.ExecutionID {
-		raw, _ := json.Marshal(updated)
-		t.Fatalf("updated fact not requeued: %v %v %s", ids, err, raw)
-	}
-}
-
-func TestAnalyticsExportRepricesADeliveredUnpricedEvent(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.Copy(io.Discard, r.Body)
-		_, _ = io.WriteString(w, `{"rows":1}`)
-	}))
-	t.Cleanup(server.Close)
-
-	cfg := legacyOutboxConfig(t)
-	cfg.Analytics.URL = server.URL
-	o := openTestOutbox(t, cfg)
-	for i := range 64 {
-		failed := exportEvent(fmt.Sprintf("fail-%02d", i))
-		failed.Estimate = &CostEstimate{Status: "unpriced", Missing: []string{"usage"}}
-		if err := o.Insert(failed); err != nil {
-			t.Fatal(err)
-		}
-	}
-	event := exportEvent("later")
-	event.Estimate = &CostEstimate{Status: "unpriced", Missing: []string{"model_tier_context_price"}}
-	if err := o.Insert(event); err != nil {
-		t.Fatal(err)
-	}
-	exporter := NewAnalyticsExporter(o, cfg.Analytics)
-	if err := exporter.ExportOnce(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	o.prices.Store(testPriceBook(t, config.PriceRate{
-		Provider: "openai", Model: "gpt-4o", Currency: "USD",
-		Input: priceString("1"), CacheRead: priceString("1"), Output: priceString("1"),
-	}))
-	exporter.lastReprice = time.Time{}
-	if err := exporter.ExportOnce(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	stored, err := o.Event("later")
-	if err != nil || stored.Estimate == nil || stored.Estimate.Status != "priced" {
-		t.Fatalf("delivered event stayed unpriced: %+v %v", stored.Estimate, err)
-	}
-	delivery, err := o.deliveriesFor("analytics").Delivery("later")
-	if err != nil || delivery.State != DeliveryAcknowledged || delivery.Attempts != 1 {
-		t.Fatalf("repriced fact was not sent: %+v %v", delivery, err)
 	}
 }

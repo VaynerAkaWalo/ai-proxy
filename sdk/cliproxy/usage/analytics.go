@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -20,15 +19,13 @@ import (
 type AnalyticsExporter struct {
 	deliveries deliveryQueue
 
-	outbox       *Outbox
-	cfg          config.AnalyticsExporterConfig
-	client       *http.Client
-	token        string
-	mu           sync.RWMutex
-	exportMu     sync.Mutex
-	status       string
-	lastReprice  time.Time
-	repriceAfter string
+	outbox   *Outbox
+	cfg      config.AnalyticsExporterConfig
+	client   *http.Client
+	token    string
+	mu       sync.RWMutex
+	exportMu sync.Mutex
+	status   string
 
 	publishedPrices     string
 	modelPricesRetryAt  time.Time
@@ -134,9 +131,6 @@ func (e *AnalyticsExporter) ExportOnce(ctx context.Context) error {
 }
 
 func (e *AnalyticsExporter) exportAttempts(ctx context.Context) error {
-	if err := e.repriceDeliveredUnpriced(ctx); err != nil {
-		return err
-	}
 	ids, err := e.deliveries.ReadyIDs(64)
 	if err != nil {
 		return err
@@ -144,10 +138,6 @@ func (e *AnalyticsExporter) exportAttempts(ctx context.Context) error {
 	var body bytes.Buffer
 	encoder := json.NewEncoder(&body)
 	claimed := make(map[string]uint64)
-
-	var pricesBody bytes.Buffer
-	pricesEncoder := json.NewEncoder(&pricesBody)
-	priceIDs := make(map[string]bool)
 
 	for _, id := range ids {
 		if ctx.Err() != nil {
@@ -175,33 +165,12 @@ func (e *AnalyticsExporter) exportAttempts(ctx context.Context) error {
 		if e.cfg.ModelPrices.Enabled {
 			row.setPriceKey(e.priceKeyOf(event))
 		}
-		var price *analyticsPriceRow
-		var errPrice error
-		if errRow == nil && e.cfg.PricesDataset != "" {
-			price, errPrice = newAnalyticsPriceRow(event.Estimate)
-		}
 		if errRow != nil {
 			e.setStatus("invalid_event")
 			if err := e.deliveries.Resolve(id, delivery.Attempts, DeliveryRejected, time.Time{}); err != nil {
 				return err
 			}
 			continue
-		}
-		if errPrice != nil {
-			e.setStatus("invalid_price_record")
-			if err := e.deliveries.Resolve(id, delivery.Attempts, DeliveryRetryable, e.outbox.now().Add(time.Hour)); err != nil {
-				return err
-			}
-			continue
-		}
-		if price != nil {
-			row.PriceID = &price.PriceID
-			if !priceIDs[price.PriceID] {
-				if err := pricesEncoder.Encode(price); err != nil {
-					return err
-				}
-				priceIDs[price.PriceID] = true
-			}
 		}
 		if err := encoder.Encode(row); err != nil {
 			return err
@@ -212,13 +181,7 @@ func (e *AnalyticsExporter) exportAttempts(ctx context.Context) error {
 		return nil
 	}
 
-	state, hold := DeliveryAcknowledged, false
-	if len(priceIDs) > 0 {
-		state, hold = e.sendDataset(ctx, e.cfg.PricesDataset, pricesBody.Bytes(), len(priceIDs))
-	}
-	if state == DeliveryAcknowledged {
-		state, hold = e.send(ctx, body.Bytes(), len(claimed))
-	}
+	state, hold := e.send(ctx, body.Bytes(), len(claimed))
 	for id, attempt := range claimed {
 		delay := min(time.Second*time.Duration(1<<min(attempt, uint64(6))), time.Minute)
 		if hold {
@@ -227,42 +190,6 @@ func (e *AnalyticsExporter) exportAttempts(ctx context.Context) error {
 		if err := e.deliveries.Resolve(id, attempt, state, e.outbox.now().Add(delay)); err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-func (e *AnalyticsExporter) repriceDeliveredUnpriced(ctx context.Context) error {
-	if !e.lastReprice.IsZero() && e.outbox.now().Sub(e.lastReprice) < time.Hour {
-		return nil
-	}
-	ids, err := e.outbox.unpricedEventIDs(e.repriceAfter, 64)
-	if err != nil {
-		return err
-	}
-	priced := 0
-	for _, id := range ids {
-		if ctx.Err() != nil {
-			return nil
-		}
-		event, err := e.outbox.repriceUnpricedEvent(id)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		if event.Estimate != nil && event.Estimate.Status == "priced" {
-			priced++
-		}
-	}
-	if len(ids) > 0 {
-		e.repriceAfter = ids[len(ids)-1]
-	}
-	if len(ids) < 64 {
-		e.repriceAfter = ""
-		e.lastReprice = e.outbox.now()
-	} else if priced == 0 {
-		e.lastReprice = e.outbox.now()
 	}
 	return nil
 }
