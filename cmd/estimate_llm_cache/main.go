@@ -224,7 +224,7 @@ func plan(key modelKey, old legacy, known classified, price rates) estimate {
 	}
 
 	uncached := 1 - e.writeShare - e.classified
-	if price.cacheWrite == price.cacheRead {
+	if known.cacheWrite == 0 || price.cacheWrite == price.cacheRead {
 		e.skipped = fmt.Sprintf("the stored cost implies a cache read share of %.3f, outside what is possible", e.readShare)
 
 		return e
