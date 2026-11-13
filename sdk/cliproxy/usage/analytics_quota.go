@@ -11,7 +11,7 @@ import (
 
 const (
 	quotaSnapshotsDatasetName = "llm_quota_snapshots"
-	quotaSnapshotsImplements  = "llm_usage@0.1/quota_snapshots"
+	quotaSnapshotsImplements  = "llm_usage_quota_snapshots"
 	quotaSnapshotsBatchSize   = 256
 )
 

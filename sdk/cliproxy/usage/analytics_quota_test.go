@@ -42,9 +42,10 @@ func TestAnalyticsQuotaDeliveryWithIngestionToken(t *testing.T) {
 				if r.URL.Path == "/api/datasets" {
 					requests = append(requests, "register")
 					var dataset struct {
-						ID string `json:"id"`
+						ID         string `json:"id"`
+						Implements string `json:"implements"`
 					}
-					if err := json.NewDecoder(r.Body).Decode(&dataset); err != nil || dataset.ID != "pawel/llm_quota_snapshots" {
+					if err := json.NewDecoder(r.Body).Decode(&dataset); err != nil || dataset.ID != "pawel/llm_quota_snapshots" || dataset.Implements != "llm_usage_quota_snapshots" {
 						t.Errorf("unexpected registration: %+v %v", dataset, err)
 					}
 
