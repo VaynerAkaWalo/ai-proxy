@@ -219,8 +219,22 @@ func plan(key modelKey, old legacy, known classified, price rates) estimate {
 	outputCost := old.output * (e.reasoning*price.reasoning + (1-e.reasoning)*price.output)
 	perInput := (old.cost - outputCost) / old.input
 	e.readShare = (perInput - e.writeShare*price.cacheWrite - (1-e.writeShare)*price.input) / (price.cacheRead - price.input)
-	if e.readShare < 0 || e.readShare > 1-e.writeShare {
+	if e.readShare >= 0 && e.readShare <= 1-e.writeShare {
+		return e
+	}
+
+	uncached := 1 - e.writeShare - e.classified
+	if known.cacheWrite == 0 || price.cacheWrite == price.cacheRead {
 		e.skipped = fmt.Sprintf("the stored cost implies a cache read share of %.3f, outside what is possible", e.readShare)
+
+		return e
+	}
+
+	classifiedWrite := e.writeShare
+	e.writeShare = (perInput - (1-uncached)*price.cacheRead - uncached*price.input) / (price.cacheWrite - price.cacheRead)
+	e.readShare = 1 - uncached - e.writeShare
+	if e.writeShare < 0 || e.writeShare > classifiedWrite {
+		e.skipped = fmt.Sprintf("the stored cost implies a cache write share of %.3f and a read share of %.3f, outside what is possible", e.writeShare, e.readShare)
 	}
 
 	return e
