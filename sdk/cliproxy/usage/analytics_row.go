@@ -9,7 +9,6 @@ import (
 type analyticsRow struct {
 	InputTokens              *int64    `json:"input_tokens"`
 	OutputTokens             *int64    `json:"output_tokens"`
-	PriceID                  *string   `json:"price_id,omitempty"`
 	Source                   string    `json:"source"`
 	ExecutionID              string    `json:"execution_id"`
 	TraceID                  *string   `json:"trace_id"`
