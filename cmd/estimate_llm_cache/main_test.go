@@ -36,6 +36,17 @@ func TestTheReadShareIsTheOneThatReproducesTheStoredCost(t *testing.T) {
 	}
 }
 
+func TestAnOlderMixWithFewerCacheWritesKeepsTheClassifiedUncachedShare(t *testing.T) {
+	known := classified{input: 1000, output: 100, cacheRead: 969, cacheWrite: 30, reasoning: 25}
+	old := legacy{attempts: 10, input: 2e6, output: 1e5, cost: costOf(2e6, 1e5, 0.989, 0.01, 0.25, testRates)}
+
+	e := plan(modelKey{"claude", "claude-priced"}, old, known, testRates)
+
+	if e.skipped != "" || math.Abs(e.writeShare-0.01) > 1e-9 || math.Abs(e.readShare-0.989) > 1e-9 {
+		t.Fatalf("incorrect estimate: %+v", e)
+	}
+}
+
 func TestACostNoMixCanProduceIsSkipped(t *testing.T) {
 	known := classified{input: 1000, output: 100, cacheRead: 900, cacheWrite: 30, reasoning: 25}
 	cheap := legacy{attempts: 10, input: 2e6, output: 1e5, cost: 1}
