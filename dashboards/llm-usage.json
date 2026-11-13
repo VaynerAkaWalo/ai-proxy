@@ -295,7 +295,8 @@
             "model": "llm_usage",
             "measures": [
               "attempts.failed_attempts",
-              "attempts.interrupted_attempts"
+              "attempts.interrupted_attempts",
+              "attempts.unpriced_attempts"
             ],
             "dimensions": [],
             "where": [],
@@ -306,6 +307,7 @@
           },
           "labels": {
             "attempts.failed_attempts": "failed",
+            "attempts.unpriced_attempts": "unpriced",
             "attempts.interrupted_attempts": "interrupted"
           },
           "type": "bar",
