@@ -129,7 +129,7 @@ func planBands(book *usage.PriceBook, groups []contextGroup) []update {
 	for _, c := range groups {
 		low, _ := book.Key(c.group.event(0))
 		high, _ := book.Key(c.group.event(c.tokens))
-		if high.MinContext == 0 || high.Provider != low.Provider || high.Model != low.Model || high.Tier != low.Tier {
+		if high.MinContext == 0 {
 			continue
 		}
 
@@ -252,7 +252,8 @@ func (c client) contexts(ctx context.Context, book *usage.PriceBook, groups []at
 			if err != nil {
 				return nil, err
 			}
-			if group.current == nil {
+			low, _ := book.Key(group.event(0))
+			if group.current == nil || *group.current == low {
 				contexts = append(contexts, contextGroup{group: group, tokens: tokens, attempts: group.count})
 			}
 		}

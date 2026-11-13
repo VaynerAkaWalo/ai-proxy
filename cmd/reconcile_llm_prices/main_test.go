@@ -84,8 +84,8 @@ func fakeAnalytics(t *testing.T, patches *[]map[string]map[string]any) *httptest
 			patch := map[string]map[string]any{"where": body["where"].(map[string]any), "set": body["set"].(map[string]any)}
 			*patches = append(*patches, patch)
 			rows := 5
-			if _, banded := patch["where"]["input_tokens"]; banded {
-				rows = 1
+			if tokens, banded := patch["where"]["input_tokens"]; banded {
+				rows = map[float64]int{300000: 1, 500000: 3}[tokens.(float64)]
 			}
 			_ = json.NewEncoder(w).Encode(map[string]int{"rows": rows})
 			return
@@ -100,7 +100,8 @@ func fakeAnalytics(t *testing.T, patches *[]map[string]map[string]any) *httptest
 			rows = [][]any{
 				{"claude", "claude-banded", "claude-banded", "standard", nil, nil, nil, nil, 300000, 1},
 				{"claude", "claude-banded", "claude-banded", "standard", nil, nil, nil, nil, 1000, 4},
-				{"claude", "claude-banded", "claude-banded", "standard", "anthropic", "claude-banded", "", 0, 400000, 2},
+				{"claude", "claude-banded", "claude-banded", "standard", "anthropic", "claude-banded-dated", "", 0, 400000, 2},
+				{"claude", "claude-banded", "claude-banded", "standard", "anthropic", "claude-banded", "", 0, 500000, 3},
 			}
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"rows": rows})
@@ -122,10 +123,17 @@ func TestReconcileKeysThenFixesBandsAndLeavesKeyedAttemptsAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(patches) != 2 {
+	if len(patches) != 3 {
 		t.Fatalf("incorrect patches: %+v", patches)
 	}
-	keyed, banded := patches[0], patches[1]
+	byTokens := map[float64]map[string]map[string]any{}
+	for _, patch := range patches[1:] {
+		byTokens[patch["where"]["input_tokens"].(float64)] = patch
+	}
+	keyed, banded, rerun := patches[0], byTokens[300000], byTokens[500000]
+	if rerun["where"]["input_tokens"] != float64(500000) || rerun["where"]["price_model"] != "claude-banded" || rerun["set"]["price_min_context_tokens"] != float64(200001) {
+		t.Fatalf("a band left at 0 by an interrupted run was not fixed: %+v", rerun)
+	}
 	if keyed["set"]["price_provider"] != "anthropic" || keyed["set"]["price_min_context_tokens"] != float64(0) || keyed["where"]["price_provider"] != nil || keyed["where"]["executed_model"] != "claude-banded" {
 		t.Fatalf("incorrect key patch: %+v", keyed)
 	}
