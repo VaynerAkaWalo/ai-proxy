@@ -58,6 +58,30 @@ func TestAModelThatNeverWritesToTheCacheIsNotGivenWrites(t *testing.T) {
 	}
 }
 
+func TestACostAboveWhatFewerWritesExplainIsNotBlamedOnMoreWrites(t *testing.T) {
+	known := classified{input: 1000, output: 100, cacheRead: 950, cacheWrite: 1, reasoning: 25}
+	dear := legacy{attempts: 10, input: 2e6, output: 1e5, cost: 1.1 * costOf(2e6, 1e5, 0, 0, 0.25, testRates)}
+
+	e := plan(modelKey{"claude", "claude-priced"}, dear, known, testRates)
+
+	if e.skipped == "" {
+		t.Fatalf("a cost above the classified mix was explained by more writes: %+v", e)
+	}
+}
+
+func TestFlatCacheWritePricingCannotBeSolved(t *testing.T) {
+	flat := testRates
+	flat.cacheWrite = flat.cacheRead
+	known := classified{input: 1000, output: 100, cacheRead: 969, cacheWrite: 30, reasoning: 25}
+	cheap := legacy{attempts: 10, input: 2e6, output: 1e5, cost: 0.9 * costOf(2e6, 1e5, 1, 0, 0.25, flat)}
+
+	e := plan(modelKey{"claude", "claude-flat"}, cheap, known, flat)
+
+	if e.skipped == "" || math.IsNaN(e.writeShare) || math.IsInf(e.writeShare, 0) {
+		t.Fatalf("an unsolvable write share was planned: %+v", e)
+	}
+}
+
 func TestACostNoMixCanProduceIsSkipped(t *testing.T) {
 	known := classified{input: 1000, output: 100, cacheRead: 900, cacheWrite: 30, reasoning: 25}
 	cheap := legacy{attempts: 10, input: 2e6, output: 1e5, cost: 1}
