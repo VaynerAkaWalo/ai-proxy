@@ -127,15 +127,16 @@ func planGroups(book *usage.PriceBook, groups []attemptGroup) []update {
 func planBands(book *usage.PriceBook, groups []contextGroup) []update {
 	var updates []update
 	for _, c := range groups {
-		key, _ := book.Key(c.group.event(c.tokens))
-		if key.MinContext == 0 {
+		low, _ := book.Key(c.group.event(0))
+		high, _ := book.Key(c.group.event(c.tokens))
+		if high.MinContext == 0 || high.Provider != low.Provider || high.Model != low.Model || high.Tier != low.Tier {
 			continue
 		}
 
 		where := c.group.where()
-		where["price_provider"], where["price_model"], where["price_service_tier"], where["price_min_context_tokens"] = key.Provider, key.Model, key.Tier, int64(0)
+		where["price_provider"], where["price_model"], where["price_service_tier"], where["price_min_context_tokens"] = low.Provider, low.Model, low.Tier, int64(0)
 		where["input_tokens"] = c.tokens
-		updates = append(updates, update{where: where, set: map[string]any{"price_min_context_tokens": key.MinContext}, attempts: c.attempts, key: key, found: true})
+		updates = append(updates, update{where: where, set: map[string]any{"price_min_context_tokens": high.MinContext}, attempts: c.attempts, key: high, found: true})
 	}
 
 	return updates
@@ -251,7 +252,7 @@ func (c client) contexts(ctx context.Context, book *usage.PriceBook, groups []at
 			if err != nil {
 				return nil, err
 			}
-			if group.current == nil || group.current.MinContext == 0 {
+			if group.current == nil {
 				contexts = append(contexts, contextGroup{group: group, tokens: tokens, attempts: group.count})
 			}
 		}

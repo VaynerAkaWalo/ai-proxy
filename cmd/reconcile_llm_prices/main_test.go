@@ -1,6 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/usage"
@@ -60,7 +66,82 @@ func TestContextBandsAreFixedForLargeContextsOnly(t *testing.T) {
 
 	updates := planBands(book, []contextGroup{{group: g, tokens: 300000, attempts: 1}, {group: g, tokens: 1000, attempts: 1}})
 
-	if len(updates) != 1 || updates[0].set["price_min_context_tokens"] != int64(200001) || updates[0].where["input_tokens"] != int64(300000) || updates[0].where["price_min_context_tokens"] != int64(0) {
+	if len(updates) != 1 || updates[0].set["price_min_context_tokens"] != int64(200001) || updates[0].where["input_tokens"] != int64(300000) || updates[0].where["price_min_context_tokens"] != int64(0) || updates[0].where["price_provider"] != "anthropic" || updates[0].where["price_model"] != "claude-banded" {
 		t.Fatalf("incorrect updates: %+v", updates)
+	}
+}
+
+func TestReconcileKeysThenFixesBandsAndLeavesKeyedAttemptsAlone(t *testing.T) {
+	var patches []map[string]map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+
+		if r.Method == http.MethodPatch {
+			patch := map[string]map[string]any{"where": body["where"].(map[string]any), "set": body["set"].(map[string]any)}
+			patches = append(patches, patch)
+			rows := 5
+			if _, banded := patch["where"]["input_tokens"]; banded {
+				rows = 1
+			}
+			_ = json.NewEncoder(w).Encode(map[string]int{"rows": rows})
+			return
+		}
+
+		query := body["query"].(map[string]any)
+		rows := [][]any{
+			{"claude", "claude-banded", "claude-banded", "standard", nil, nil, nil, nil, 5},
+			{"codex", "plain-model", "plain-model", "standard", "openai", "plain-model", "", 0, 3},
+		}
+		if len(query["dimensions"].([]any)) == len(groupDimensions)+1 {
+			rows = [][]any{
+				{"claude", "claude-banded", "claude-banded", "standard", nil, nil, nil, nil, 300000, 1},
+				{"claude", "claude-banded", "claude-banded", "standard", nil, nil, nil, nil, 1000, 4},
+				{"claude", "claude-banded", "claude-banded", "standard", "anthropic", "claude-banded", "", 0, 400000, 2},
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"rows": rows})
+	}))
+	defer server.Close()
+	path := filepath.Join(t.TempDir(), "catalog.json")
+	if err := os.WriteFile(path, []byte(catalog), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ANALYTICS_TOKEN", "token")
+
+	var out bytes.Buffer
+	if err := run(t.Context(), []string{"-catalog", path, "-url", server.URL, "-apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(patches) != 2 {
+		t.Fatalf("incorrect patches: %+v", patches)
+	}
+	keyed, banded := patches[0], patches[1]
+	if keyed["set"]["price_provider"] != "anthropic" || keyed["set"]["price_min_context_tokens"] != float64(0) || keyed["where"]["price_provider"] != nil || keyed["where"]["executed_model"] != "claude-banded" {
+		t.Fatalf("incorrect key patch: %+v", keyed)
+	}
+	if banded["set"]["price_min_context_tokens"] != float64(200001) || banded["where"]["input_tokens"] != float64(300000) || banded["where"]["price_model"] != "claude-banded" {
+		t.Fatalf("incorrect band patch: %+v", banded)
+	}
+}
+
+func TestADryRunPatchesNothing(t *testing.T) {
+	patched := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		patched = patched || r.Method == http.MethodPatch
+		_, _ = w.Write([]byte(`{"rows": []}`))
+	}))
+	defer server.Close()
+	path := filepath.Join(t.TempDir(), "catalog.json")
+	if err := os.WriteFile(path, []byte(catalog), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ANALYTICS_TOKEN", "token")
+
+	if err := run(t.Context(), []string{"-catalog", path, "-url", server.URL}, &bytes.Buffer{}); err != nil || patched {
+		t.Fatalf("dry run changed data: %v %t", err, patched)
 	}
 }
