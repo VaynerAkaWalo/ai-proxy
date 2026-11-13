@@ -33,7 +33,7 @@ func (e *AnalyticsExporter) exportQuotaSnapshots(ctx context.Context) error {
 		}
 	}
 	state, _ := e.sendDataset(ctx, QuotaSnapshotsDataset(e.cfg.Dataset), body.Bytes(), len(rows))
-	if e.Status() == "dataset_or_route_missing" && e.registerQuotaDataset(ctx) {
+	if e.Status() == "dataset_or_route_missing" && e.registerDataset(ctx, QuotaSnapshotsDataset(e.cfg.Dataset), quotaSnapshotsImplements) {
 		state, _ = e.sendDataset(ctx, QuotaSnapshotsDataset(e.cfg.Dataset), body.Bytes(), len(rows))
 	}
 
@@ -43,8 +43,8 @@ func (e *AnalyticsExporter) exportQuotaSnapshots(ctx context.Context) error {
 	return nil
 }
 
-func (e *AnalyticsExporter) registerQuotaDataset(ctx context.Context) bool {
-	payload, err := json.Marshal(map[string]string{"id": QuotaSnapshotsDataset(e.cfg.Dataset), "implements": quotaSnapshotsImplements})
+func (e *AnalyticsExporter) registerDataset(ctx context.Context, id, implements string) bool {
+	payload, err := json.Marshal(map[string]string{"id": id, "implements": implements})
 	if err != nil {
 		return false
 	}

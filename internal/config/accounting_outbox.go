@@ -45,6 +45,11 @@ type AnalyticsExporterConfig struct {
 	TokenEnv       string               `yaml:"token-env" json:"token-env"`
 	ExportProject  bool                 `yaml:"export-project" json:"export-project"`
 	QuotaSnapshots QuotaSnapshotsConfig `yaml:"quota-snapshots" json:"quota-snapshots"`
+	ModelPrices    ModelPricesConfig    `yaml:"model-prices" json:"model-prices"`
+}
+
+type ModelPricesConfig struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
 }
 
 type QuotaSnapshotsConfig struct {

@@ -29,8 +29,13 @@ type AnalyticsExporter struct {
 	status       string
 	lastReprice  time.Time
 	repriceAfter string
-	cancel       context.CancelFunc
-	done         chan struct{}
+
+	publishedPrices     string
+	modelPricesRetryAt  time.Time
+	warnedMissingPrices sync.Map
+
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
 func NewAnalyticsExporter(outbox *Outbox, cfg config.AnalyticsExporterConfig) *AnalyticsExporter {
@@ -116,6 +121,9 @@ func (e *AnalyticsExporter) ExportOnce(ctx context.Context) error {
 		e.setStatus("credential_unavailable")
 		return nil
 	}
+	if err := e.publishModelPrices(ctx); err != nil {
+		return err
+	}
 	if err := e.exportAttempts(ctx); err != nil {
 		return err
 	}
@@ -163,6 +171,9 @@ func (e *AnalyticsExporter) exportAttempts(ctx context.Context) error {
 		row, errRow := newAnalyticsRow(event)
 		if e.cfg.ExportProject {
 			row.Project = nullableString(event.Project)
+		}
+		if e.cfg.ModelPrices.Enabled {
+			row.setPriceKey(e.priceKeyOf(event))
 		}
 		var price *analyticsPriceRow
 		var errPrice error

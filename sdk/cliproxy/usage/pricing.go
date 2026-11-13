@@ -156,6 +156,65 @@ func (b *PriceBook) Estimate(event AccountingEvent) *CostEstimate {
 	return e
 }
 
+type PriceKey struct {
+	Provider   string
+	Model      string
+	Tier       string
+	MinContext int64
+}
+
+func (b *PriceBook) Key(event AccountingEvent) (PriceKey, bool) {
+	if b == nil {
+		b = &PriceBook{}
+	}
+
+	tier := baseServiceTier(event.ReportedServiceTier)
+	provider, model, index := b.lookup(event, tier, inputContextTokens(event))
+	if index >= 0 {
+		rate := b.rates[index]
+		return PriceKey{rate.Provider, rate.Model, rate.Tier, rate.MinContext}, true
+	}
+
+	if fallback, ok := priceProviderFallbacks[provider]; ok {
+		provider = fallback
+	}
+
+	return PriceKey{provider, model, tier, 0}, false
+}
+
+func inputContextTokens(event AccountingEvent) int64 {
+	if event.Tokens == nil || !event.Tokens.Breakdown.Valid() {
+		return 0
+	}
+
+	return event.Tokens.Breakdown.Input.TotalTokens
+}
+
+type modelPrice struct {
+	rate   config.PriceRate
+	source string
+}
+
+func (b *PriceBook) modelPrices() []modelPrice {
+	if b == nil {
+		return nil
+	}
+
+	last := map[PriceKey]int{}
+	for i, rate := range b.rates {
+		last[PriceKey{rate.Provider, rate.Model, rate.Tier, rate.MinContext}] = i
+	}
+
+	prices := make([]modelPrice, 0, len(last))
+	for i, rate := range b.rates {
+		if last[PriceKey{rate.Provider, rate.Model, rate.Tier, rate.MinContext}] == i {
+			prices = append(prices, modelPrice{rate: clonePriceRate(rate), source: b.sources[i]})
+		}
+	}
+
+	return prices
+}
+
 var priceProviderFallbacks = map[string]string{
 	"codex":       "openai",
 	"claude":      "anthropic",

@@ -37,6 +37,14 @@ type analyticsRow struct {
 	CostKind                 *string   `json:"cost_kind"`
 	CostStatus               string    `json:"cost_status"`
 	PricingSnapshot          *string   `json:"pricing_snapshot"`
+	PriceProvider            *string   `json:"price_provider,omitempty"`
+	PriceModel               *string   `json:"price_model,omitempty"`
+	PriceServiceTier         *string   `json:"price_service_tier,omitempty"`
+	PriceMinContextTokens    *int64    `json:"price_min_context_tokens,omitempty"`
+}
+
+func (r *analyticsRow) setPriceKey(key PriceKey) {
+	r.PriceProvider, r.PriceModel, r.PriceServiceTier, r.PriceMinContextTokens = &key.Provider, &key.Model, &key.Tier, &key.MinContext
 }
 
 var analyticsAmountPattern = regexp.MustCompile(`^(0|[1-9]\d{0,11})(\.\d{1,12})?$`)
