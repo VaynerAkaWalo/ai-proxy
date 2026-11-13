@@ -49,7 +49,7 @@ func TestAnalyticsMappingPreservesAccountingAndOmitsInternalPayloads(t *testing.
 		"input_uncached_tokens": float64(8), "cache_read_tokens": float64(2), "cache_write_tokens": float64(0),
 		"output_non_reasoning_tokens": float64(4), "reasoning_tokens": float64(1), "total_tokens": float64(15),
 		"unclassified_tokens": float64(0), "usage_quality": "complete",
-		"cost_usd": "0.000123456", "cost_kind": "api_equivalent_estimate", "cost_status": "priced", "pricing_snapshot": "snapshot-hash",
+		"cost_kind": "api_equivalent_estimate", "cost_status": "priced", "pricing_snapshot": "snapshot-hash",
 	}
 	if !reflect.DeepEqual(payload, expected) {
 		t.Fatalf("unexpected payload: %s", raw)
@@ -62,7 +62,7 @@ func TestAnalyticsMappingKeepsUnknownUsageAndPartialCosts(t *testing.T) {
 	event.Tokens = nil
 	event.Estimate.Status = "partial"
 	row, err := newAnalyticsRow(event)
-	if err != nil || row.Status != "interrupted" || row.InputTokens != nil || row.OutputTokens != nil || row.InputUncachedTokens != nil || row.TotalTokens != nil || row.UsageQuality != "unknown" || row.CostStatus != "partial" || row.CostUSD == nil {
+	if err != nil || row.Status != "interrupted" || row.InputTokens != nil || row.OutputTokens != nil || row.InputUncachedTokens != nil || row.TotalTokens != nil || row.UsageQuality != "unknown" || row.CostStatus != "partial" {
 		t.Fatalf("unknown usage or partial cost lost: %+v, %v", row, err)
 	}
 
@@ -75,14 +75,14 @@ func TestAnalyticsMappingKeepsUnknownUsageAndPartialCosts(t *testing.T) {
 	for _, amount := range []string{"NaN", "1e-9", "-1", "1000000000000", "0.1234567890123"} {
 		event.Estimate.Status, event.Estimate.Amount = "priced", &amount
 		row, err = newAnalyticsRow(event)
-		if err != nil || row.CostUSD != nil || row.CostStatus != "unpriced" {
+		if err != nil || row.CostStatus != "unpriced" {
 			t.Fatalf("invalid USD amount exported: %+v, %v", row, err)
 		}
 	}
 	event.Estimate.Currency = "EUR"
 	event.Estimate.Amount = priceString("1")
 	row, err = newAnalyticsRow(event)
-	if err != nil || row.CostUSD != nil || row.CostStatus != "unpriced" {
+	if err != nil || row.CostStatus != "unpriced" {
 		t.Fatal("foreign currency exported as USD")
 	}
 }
@@ -182,7 +182,7 @@ func TestAnalyticsBatchRetainsFailedUnpricedAndUnknownAttempts(t *testing.T) {
 		t.Fatalf("lost attempts: %d", len(rows))
 	}
 	for _, row := range rows {
-		if row.TotalTokens != nil || row.CostUSD != nil || row.CostStatus != "unpriced" {
+		if row.TotalTokens != nil || row.CostStatus != "unpriced" {
 			t.Fatalf("fabricated facts: %+v", row)
 		}
 		if d, err := o.Delivery(row.ExecutionID); err != nil || d.State != DeliveryAcknowledged {

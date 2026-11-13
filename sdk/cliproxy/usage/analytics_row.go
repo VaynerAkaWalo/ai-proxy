@@ -32,7 +32,6 @@ type analyticsRow struct {
 	TotalTokens              *int64    `json:"total_tokens"`
 	UnclassifiedTokens       *int64    `json:"unclassified_tokens"`
 	UsageQuality             string    `json:"usage_quality"`
-	CostUSD                  *string   `json:"cost_usd"`
 	CostKind                 *string   `json:"cost_kind"`
 	CostStatus               string    `json:"cost_status"`
 	PricingSnapshot          *string   `json:"pricing_snapshot"`
@@ -108,7 +107,6 @@ func newAnalyticsRow(event AccountingEvent) (analyticsRow, error) {
 		row.CostKind = nullableString(estimate.Kind)
 		row.PricingSnapshot = nullableString(estimate.Snapshot)
 		if estimate.Currency == "USD" && (estimate.Status == "priced" || estimate.Status == "partial") && estimate.Amount != nil && analyticsAmountPattern.MatchString(*estimate.Amount) {
-			row.CostUSD = estimate.Amount
 			row.CostStatus = estimate.Status
 		}
 	}
