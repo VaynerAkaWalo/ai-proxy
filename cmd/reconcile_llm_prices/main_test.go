@@ -71,9 +71,10 @@ func TestContextBandsAreFixedForLargeContextsOnly(t *testing.T) {
 	}
 }
 
-func TestReconcileKeysThenFixesBandsAndLeavesKeyedAttemptsAlone(t *testing.T) {
-	var patches []map[string]map[string]any
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func fakeAnalytics(t *testing.T, patches *[]map[string]map[string]any) *httptest.Server {
+	t.Helper()
+
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Error(err)
@@ -81,7 +82,7 @@ func TestReconcileKeysThenFixesBandsAndLeavesKeyedAttemptsAlone(t *testing.T) {
 
 		if r.Method == http.MethodPatch {
 			patch := map[string]map[string]any{"where": body["where"].(map[string]any), "set": body["set"].(map[string]any)}
-			patches = append(patches, patch)
+			*patches = append(*patches, patch)
 			rows := 5
 			if _, banded := patch["where"]["input_tokens"]; banded {
 				rows = 1
@@ -104,6 +105,11 @@ func TestReconcileKeysThenFixesBandsAndLeavesKeyedAttemptsAlone(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"rows": rows})
 	}))
+}
+
+func TestReconcileKeysThenFixesBandsAndLeavesKeyedAttemptsAlone(t *testing.T) {
+	var patches []map[string]map[string]any
+	server := fakeAnalytics(t, &patches)
 	defer server.Close()
 	path := filepath.Join(t.TempDir(), "catalog.json")
 	if err := os.WriteFile(path, []byte(catalog), 0o600); err != nil {
@@ -129,11 +135,8 @@ func TestReconcileKeysThenFixesBandsAndLeavesKeyedAttemptsAlone(t *testing.T) {
 }
 
 func TestADryRunPatchesNothing(t *testing.T) {
-	patched := false
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		patched = patched || r.Method == http.MethodPatch
-		_, _ = w.Write([]byte(`{"rows": []}`))
-	}))
+	var patches []map[string]map[string]any
+	server := fakeAnalytics(t, &patches)
 	defer server.Close()
 	path := filepath.Join(t.TempDir(), "catalog.json")
 	if err := os.WriteFile(path, []byte(catalog), 0o600); err != nil {
@@ -141,7 +144,8 @@ func TestADryRunPatchesNothing(t *testing.T) {
 	}
 	t.Setenv("ANALYTICS_TOKEN", "token")
 
-	if err := run(t.Context(), []string{"-catalog", path, "-url", server.URL}, &bytes.Buffer{}); err != nil || patched {
-		t.Fatalf("dry run changed data: %v %t", err, patched)
+	var out bytes.Buffer
+	if err := run(t.Context(), []string{"-catalog", path, "-url", server.URL}, &out); err != nil || len(patches) != 0 || !bytes.Contains(out.Bytes(), []byte("price keys: 1 updates")) {
+		t.Fatalf("dry run changed data or planned nothing: %v %d %s", err, len(patches), out.String())
 	}
 }
