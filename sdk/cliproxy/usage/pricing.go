@@ -1,6 +1,7 @@
 package usage
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -169,12 +170,13 @@ func (b *PriceBook) Key(event AccountingEvent) (PriceKey, bool) {
 	}
 
 	tier := baseServiceTier(event.ReportedServiceTier)
-	provider, model, index := b.lookup(event, tier, inputContextTokens(event))
+	_, _, index := b.lookup(event, tier, inputContextTokens(event))
 	if index >= 0 {
 		rate := b.rates[index]
 		return PriceKey{rate.Provider, rate.Model, rate.Tier, rate.MinContext}, true
 	}
 
+	provider, model := b.alias(event.Provider, cmp.Or(event.ExecutedModel, event.RequestedAlias, event.ResponseModel))
 	if fallback, ok := priceProviderFallbacks[provider]; ok {
 		provider = fallback
 	}
@@ -196,10 +198,6 @@ type modelPrice struct {
 }
 
 func (b *PriceBook) modelPrices() []modelPrice {
-	if b == nil {
-		return nil
-	}
-
 	last := map[PriceKey]int{}
 	for i, rate := range b.rates {
 		last[PriceKey{rate.Provider, rate.Model, rate.Tier, rate.MinContext}] = i
@@ -240,13 +238,7 @@ func (b *PriceBook) lookup(event AccountingEvent, tier string, contextTokens int
 	}
 	firstProvider, firstModel := event.Provider, ""
 	for i, model := range candidates {
-		provider := event.Provider
-		for _, alias := range b.aliases {
-			if alias.Provider == provider && alias.Model == model {
-				provider, model = alias.TargetProvider, alias.TargetModel
-				break
-			}
-		}
+		provider, model := b.alias(event.Provider, model)
 		if i == 0 {
 			firstProvider, firstModel = provider, model
 		}
@@ -261,6 +253,16 @@ func (b *PriceBook) lookup(event AccountingEvent, tier string, contextTokens int
 		}
 	}
 	return firstProvider, firstModel, -1
+}
+
+func (b *PriceBook) alias(provider, model string) (string, string) {
+	for _, alias := range b.aliases {
+		if alias.Provider == provider && alias.Model == model {
+			return alias.TargetProvider, alias.TargetModel
+		}
+	}
+
+	return provider, model
 }
 
 func (b *PriceBook) find(provider, model, tier string, contextTokens int64) int {

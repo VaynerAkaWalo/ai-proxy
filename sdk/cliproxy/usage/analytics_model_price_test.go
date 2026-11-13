@@ -101,6 +101,21 @@ func TestPriceKeyDoesNotChangeWhenThePriceIsAddedLater(t *testing.T) {
 	}
 }
 
+func TestUnpricedKeyUsesTheExecutedModelNotTheDatedResponseModel(t *testing.T) {
+	event := eventOfSize("one", "codex", "gpt-5", 100)
+	event.ResponseModel = "gpt-5-2025-08-07"
+
+	before, found := (*PriceBook)(nil).Key(event)
+	if found || before != (PriceKey{Provider: "openai", Model: "gpt-5"}) {
+		t.Fatalf("unpriced key: %+v %t", before, found)
+	}
+
+	after, found := testPriceBook(t, gpt5Rate("0.000001", "0.00001")).Key(event)
+	if !found || after != before {
+		t.Fatalf("key moved when the price appeared: %+v %t", after, found)
+	}
+}
+
 func TestPriceKeyPicksTheContextBandAndTier(t *testing.T) {
 	low, high := gpt5Rate("0.000001", "0.00001"), gpt5Rate("0.000002", "0.00002")
 	low.MaxContext, high.MinContext = 200000, 200001

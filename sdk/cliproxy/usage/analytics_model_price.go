@@ -163,17 +163,10 @@ func (o *Outbox) ackModelPrices(rows []analyticsModelPriceRow) error {
 		bucket := tx.Bucket(modelPricesBucket)
 		for _, row := range rows {
 			key := []byte(row.identity())
-			raw := bucket.Get(key)
-			if raw == nil {
-				continue
-			}
 
 			var state modelPriceState
-			if err := json.Unmarshal(raw, &state); err != nil {
+			if err := json.Unmarshal(bucket.Get(key), &state); err != nil {
 				return err
-			}
-			if state.Fingerprint != row.fingerprint() {
-				continue
 			}
 
 			state.Acknowledged = true

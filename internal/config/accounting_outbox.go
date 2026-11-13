@@ -117,6 +117,9 @@ func (c AccountingOutboxConfig) Validate() error {
 	if c.Analytics.QuotaSnapshots.Enabled && !c.Analytics.Enabled {
 		return fmt.Errorf("Analytics quota-snapshots requires the Analytics exporter to be enabled")
 	}
+	if c.Analytics.ModelPrices.Enabled && !c.Analytics.Enabled {
+		return fmt.Errorf("Analytics model-prices requires the Analytics exporter to be enabled")
+	}
 	if c.Analytics.QuotaSnapshots.IntervalSeconds < 0 || c.Analytics.QuotaSnapshots.IntervalSeconds > 86400 {
 		return fmt.Errorf("invalid Analytics quota-snapshots interval-seconds")
 	}
