@@ -2,7 +2,7 @@
   "id": "llm-usage",
   "title": "LLM usage",
   "models": [
-    "llm_usage@0"
+    "llm_usage"
   ],
   "time": {
     "default": {
@@ -39,9 +39,9 @@
           "height": "xs",
           "type": "stat",
           "query": {
-            "model": "llm_usage@0",
+            "model": "llm_usage",
             "measures": [
-              "cost_usd"
+              "attempts.cost_usd"
             ],
             "dimensions": [],
             "where": [],
@@ -58,9 +58,9 @@
           "height": "xs",
           "type": "stat",
           "query": {
-            "model": "llm_usage@0",
+            "model": "llm_usage",
             "measures": [
-              "cost_usd"
+              "attempts.cost_usd"
             ],
             "dimensions": [],
             "where": [],
@@ -72,9 +72,9 @@
             "last": 7,
             "unit": "day"
           },
-          "secondary": "cost_usd_per_day_over_7d",
+          "secondary": "attempts.cost_usd_per_day_over_7d",
           "labels": {
-            "cost_usd_per_day_over_7d": ""
+            "attempts.cost_usd_per_day_over_7d": ""
           }
         },
         {
@@ -84,9 +84,9 @@
           "height": "xs",
           "type": "stat",
           "query": {
-            "model": "llm_usage@0",
+            "model": "llm_usage",
             "measures": [
-              "subscriptions_usd"
+              "quota_snapshots.subscriptions_usd"
             ],
             "dimensions": [],
             "where": [
@@ -106,9 +106,9 @@
           "height": "xs",
           "type": "stat",
           "query": {
-            "model": "llm_usage@0",
+            "model": "llm_usage",
             "measures": [
-              "failure_rate"
+              "attempts.failure_rate"
             ],
             "dimensions": [],
             "where": [],
@@ -120,9 +120,9 @@
             "last": 7,
             "unit": "day"
           },
-          "secondary": "failed_attempts",
+          "secondary": "attempts.failed_attempts",
           "labels": {
-            "failed_attempts": "failed"
+            "attempts.failed_attempts": "failed"
           }
         },
         {
@@ -131,9 +131,9 @@
           "span": 7,
           "height": "md",
           "query": {
-            "model": "llm_usage@0",
+            "model": "llm_usage",
             "measures": [
-              "cost_usd"
+              "attempts.cost_usd"
             ],
             "dimensions": [
               "executed_model"
@@ -153,11 +153,11 @@
           "height": "md",
           "type": "table",
           "query": {
-            "model": "llm_usage@0",
+            "model": "llm_usage",
             "measures": [
-              "remaining_utilization",
+              "quota_snapshots.remaining_utilization",
               "usage_left_usd",
-              "latest_resets_at"
+              "quota_snapshots.latest_resets_at"
             ],
             "dimensions": [
               "provider"
@@ -176,8 +176,8 @@
           },
           "labels": {
             "provider": "Provider",
-            "latest_resets_at": "Reset",
-            "remaining_utilization": "Left",
+            "quota_snapshots.latest_resets_at": "Reset",
+            "quota_snapshots.remaining_utilization": "Left",
             "usage_left_usd": "Estimated"
           },
           "period": {
@@ -193,13 +193,13 @@
           "height": "md",
           "type": "table",
           "query": {
-            "model": "llm_usage@0",
+            "model": "llm_usage",
             "measures": [
-              "cost_usd",
-              "attempts",
-              "cost_per_mtok_usd",
-              "cache_read_share",
-              "failure_rate"
+              "attempts.cost_usd",
+              "attempts.attempts",
+              "attempts.cost_per_mtok_usd",
+              "attempts.cache_read_share",
+              "attempts.failure_rate"
             ],
             "dimensions": [
               "executed_model"
@@ -209,19 +209,19 @@
               "dimension": "time"
             }
           },
-          "share": "cost_usd",
+          "share": "attempts.cost_usd",
           "sort": {
-            "by": "cost_usd",
+            "by": "attempts.cost_usd",
             "dir": "desc"
           },
           "limit": 15,
           "labels": {
-            "attempts": "Attempts",
-            "cost_usd": "Spend",
-            "failure_rate": "Fail rate",
+            "attempts.attempts": "Attempts",
+            "attempts.cost_usd": "Spend",
+            "attempts.failure_rate": "Fail rate",
             "executed_model": "Model",
-            "cache_read_share": "Cache read",
-            "cost_per_mtok_usd": "$ / Mtok"
+            "attempts.cache_read_share": "Cache read",
+            "attempts.cost_per_mtok_usd": "$ / Mtok"
           }
         }
       ]
@@ -236,9 +236,9 @@
           "height": "md",
           "type": "table",
           "query": {
-            "model": "llm_usage@0",
+            "model": "llm_usage",
             "measures": [
-              "cost_usd"
+              "attempts.cost_usd"
             ],
             "dimensions": [
               "project"
@@ -248,15 +248,15 @@
               "dimension": "time"
             }
           },
-          "share": "cost_usd",
+          "share": "attempts.cost_usd",
           "sort": {
-            "by": "cost_usd",
+            "by": "attempts.cost_usd",
             "dir": "desc"
           },
           "limit": 8,
           "labels": {
             "project": "Project",
-            "cost_usd": "Spend"
+            "attempts.cost_usd": "Spend"
           }
         },
         {
@@ -265,11 +265,11 @@
           "span": 6,
           "height": "md",
           "query": {
-            "model": "llm_usage@0",
+            "model": "llm_usage",
             "measures": [
-              "cache_read_tokens",
-              "input_uncached_tokens",
-              "output_tokens"
+              "attempts.cache_read_tokens",
+              "attempts.input_uncached_tokens",
+              "attempts.output_tokens"
             ],
             "dimensions": [],
             "where": [],
@@ -279,9 +279,9 @@
             }
           },
           "labels": {
-            "output_tokens": "output",
-            "cache_read_tokens": "cache read",
-            "input_uncached_tokens": "input"
+            "attempts.output_tokens": "output",
+            "attempts.cache_read_tokens": "cache read",
+            "attempts.input_uncached_tokens": "input"
           },
           "type": "bar",
           "stacked": true
@@ -292,11 +292,11 @@
           "span": 6,
           "height": "md",
           "query": {
-            "model": "llm_usage@0",
+            "model": "llm_usage",
             "measures": [
-              "failed_attempts",
-              "interrupted_attempts",
-              "unpriced_attempts"
+              "attempts.failed_attempts",
+              "attempts.interrupted_attempts",
+              "attempts.unpriced_attempts"
             ],
             "dimensions": [],
             "where": [],
@@ -306,9 +306,9 @@
             }
           },
           "labels": {
-            "failed_attempts": "failed",
-            "unpriced_attempts": "unpriced",
-            "interrupted_attempts": "interrupted"
+            "attempts.failed_attempts": "failed",
+            "attempts.unpriced_attempts": "unpriced",
+            "attempts.interrupted_attempts": "interrupted"
           },
           "type": "bar",
           "stacked": true
@@ -319,10 +319,10 @@
           "span": 6,
           "height": "md",
           "query": {
-            "model": "llm_usage@0",
+            "model": "llm_usage",
             "measures": [
-              "latency_p50_seconds",
-              "latency_p95_seconds"
+              "attempts.latency_p50_seconds",
+              "attempts.latency_p95_seconds"
             ],
             "dimensions": [],
             "where": [],
@@ -332,8 +332,8 @@
             }
           },
           "labels": {
-            "latency_p50_seconds": "p50",
-            "latency_p95_seconds": "p95"
+            "attempts.latency_p50_seconds": "p50",
+            "attempts.latency_p95_seconds": "p95"
           },
           "type": "line"
         }
