@@ -49,9 +49,9 @@ func TestAnOlderMixWithFewerCacheWritesKeepsTheClassifiedUncachedShare(t *testin
 
 func TestAModelThatNeverWritesToTheCacheIsNotGivenWrites(t *testing.T) {
 	known := classified{input: 1000, output: 100, cacheRead: 950, reasoning: 25}
-	cheap := legacy{attempts: 10, input: 2e6, output: 1e5, cost: costOf(2e6, 1e5, 0.99, 0, 0.25, testRates)}
+	dear := legacy{attempts: 10, input: 2e6, output: 1e5, cost: 1.1 * costOf(2e6, 1e5, 0, 0, 0.25, testRates)}
 
-	e := plan(modelKey{"codex", "claude-priced"}, cheap, known, testRates)
+	e := plan(modelKey{"codex", "claude-priced"}, dear, known, testRates)
 
 	if e.skipped == "" || e.writeShare != 0 {
 		t.Fatalf("writes were invented for a model without any: %+v", e)
