@@ -1294,6 +1294,11 @@ observability:
         interval-seconds: 300 # Minimum gap between unchanged snapshots of one account window, and scan period.
         # Monthly USD price per plan or "provider:plan" (e.g. "xai:supergrok"). Unlisted plans export null.
         plan-prices-usd: {}
+      # Model prices for the llm_prices table, published to owner/llm_model_prices, and the price key
+      # (price_provider, price_model, price_service_tier, price_min_context_tokens) on every attempt.
+      # Enable once the table, that dataset and the attempts columns are deployed.
+      model-prices:
+        enabled: false
     # Project tag: X-Project header, else the repo of the client's working directory.
     # Override by working directory prefix:
     # project-paths:

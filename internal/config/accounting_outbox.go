@@ -45,6 +45,11 @@ type AnalyticsExporterConfig struct {
 	TokenEnv       string               `yaml:"token-env" json:"token-env"`
 	ExportProject  bool                 `yaml:"export-project" json:"export-project"`
 	QuotaSnapshots QuotaSnapshotsConfig `yaml:"quota-snapshots" json:"quota-snapshots"`
+	ModelPrices    ModelPricesConfig    `yaml:"model-prices" json:"model-prices"`
+}
+
+type ModelPricesConfig struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
 }
 
 type QuotaSnapshotsConfig struct {
@@ -111,6 +116,9 @@ func (c AccountingOutboxConfig) Validate() error {
 	}
 	if c.Analytics.QuotaSnapshots.Enabled && !c.Analytics.Enabled {
 		return fmt.Errorf("Analytics quota-snapshots requires the Analytics exporter to be enabled")
+	}
+	if c.Analytics.ModelPrices.Enabled && !c.Analytics.Enabled {
+		return fmt.Errorf("Analytics model-prices requires the Analytics exporter to be enabled")
 	}
 	if c.Analytics.QuotaSnapshots.IntervalSeconds < 0 || c.Analytics.QuotaSnapshots.IntervalSeconds > 86400 {
 		return fmt.Errorf("invalid Analytics quota-snapshots interval-seconds")

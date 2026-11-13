@@ -92,3 +92,16 @@ func TestAnalyticsExporterConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestModelPricesRequireTheAnalyticsExporter(t *testing.T) {
+	cfg := AccountingOutboxConfig{Enabled: true, DataPath: t.TempDir()}
+	cfg.Analytics.ModelPrices.Enabled = true
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("accepted model prices without the analytics exporter")
+	}
+
+	cfg.Analytics = AnalyticsExporterConfig{Enabled: true, URL: "https://analytics.example", Dataset: "pawel/llm_usage", ModelPrices: ModelPricesConfig{Enabled: true}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
