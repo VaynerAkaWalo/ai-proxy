@@ -167,7 +167,7 @@ func TestAttemptsOmitThePriceKeyUntilModelPricesAreEnabled(t *testing.T) {
 	}
 
 	for name := range server.attempts[0] {
-		if strings.HasPrefix(name, "price_") && name != "price_id" {
+		if strings.HasPrefix(name, "price_") {
 			t.Fatalf("exported %s before the table has it", name)
 		}
 	}
