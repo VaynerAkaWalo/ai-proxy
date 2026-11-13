@@ -41,7 +41,7 @@
           "query": {
             "model": "llm_usage",
             "measures": [
-              "attempts.cost_usd"
+              "spend_usd"
             ],
             "dimensions": [],
             "where": [],
@@ -60,7 +60,7 @@
           "query": {
             "model": "llm_usage",
             "measures": [
-              "attempts.cost_usd"
+              "spend_usd"
             ],
             "dimensions": [],
             "where": [],
@@ -72,9 +72,9 @@
             "last": 7,
             "unit": "day"
           },
-          "secondary": "attempts.cost_usd_per_day_over_7d",
+          "secondary": "spend_per_day_over_7d",
           "labels": {
-            "attempts.cost_usd_per_day_over_7d": ""
+            "spend_per_day_over_7d": ""
           }
         },
         {
@@ -133,7 +133,7 @@
           "query": {
             "model": "llm_usage",
             "measures": [
-              "attempts.cost_usd"
+              "spend_usd"
             ],
             "dimensions": [
               "executed_model"
@@ -156,7 +156,7 @@
             "model": "llm_usage",
             "measures": [
               "quota_snapshots.remaining_utilization",
-              "usage_left_usd",
+              "estimated_usage_left_usd",
               "quota_snapshots.latest_resets_at"
             ],
             "dimensions": [
@@ -178,7 +178,7 @@
             "provider": "Provider",
             "quota_snapshots.latest_resets_at": "Reset",
             "quota_snapshots.remaining_utilization": "Left",
-            "usage_left_usd": "Estimated"
+            "estimated_usage_left_usd": "Estimated"
           },
           "period": {
             "name": "quota_reset",
@@ -195,9 +195,9 @@
           "query": {
             "model": "llm_usage",
             "measures": [
-              "attempts.cost_usd",
+              "spend_usd",
               "attempts.attempts",
-              "attempts.cost_per_mtok_usd",
+              "spend_per_mtok_usd",
               "attempts.cache_read_share",
               "attempts.failure_rate"
             ],
@@ -209,19 +209,19 @@
               "dimension": "time"
             }
           },
-          "share": "attempts.cost_usd",
+          "share": "spend_usd",
           "sort": {
-            "by": "attempts.cost_usd",
+            "by": "spend_usd",
             "dir": "desc"
           },
           "limit": 15,
           "labels": {
             "attempts.attempts": "Attempts",
-            "attempts.cost_usd": "Spend",
+            "spend_usd": "Spend",
             "attempts.failure_rate": "Fail rate",
             "executed_model": "Model",
             "attempts.cache_read_share": "Cache read",
-            "attempts.cost_per_mtok_usd": "$ / Mtok"
+            "spend_per_mtok_usd": "$ / Mtok"
           }
         }
       ]
@@ -238,7 +238,7 @@
           "query": {
             "model": "llm_usage",
             "measures": [
-              "attempts.cost_usd"
+              "spend_usd"
             ],
             "dimensions": [
               "project"
@@ -248,15 +248,15 @@
               "dimension": "time"
             }
           },
-          "share": "attempts.cost_usd",
+          "share": "spend_usd",
           "sort": {
-            "by": "attempts.cost_usd",
+            "by": "spend_usd",
             "dir": "desc"
           },
           "limit": 8,
           "labels": {
             "project": "Project",
-            "attempts.cost_usd": "Spend"
+            "spend_usd": "Spend"
           }
         },
         {
@@ -295,8 +295,7 @@
             "model": "llm_usage",
             "measures": [
               "attempts.failed_attempts",
-              "attempts.interrupted_attempts",
-              "attempts.unpriced_attempts"
+              "attempts.interrupted_attempts"
             ],
             "dimensions": [],
             "where": [],
@@ -307,7 +306,6 @@
           },
           "labels": {
             "attempts.failed_attempts": "failed",
-            "attempts.unpriced_attempts": "unpriced",
             "attempts.interrupted_attempts": "interrupted"
           },
           "type": "bar",
