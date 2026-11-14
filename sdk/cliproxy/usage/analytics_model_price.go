@@ -6,6 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"math/big"
 	"strconv"
 	"strings"
 	"time"
@@ -239,4 +241,25 @@ func (e *AnalyticsExporter) priceKeyOf(event AccountingEvent) PriceKey {
 	}
 
 	return key
+}
+
+func analyticsRatePerMillion(rate *string) (*string, error) {
+	if rate == nil {
+		return nil, nil
+	}
+
+	value, ok := decimalRate(*rate)
+	if !ok {
+		return nil, fmt.Errorf("invalid price rate")
+	}
+	value.Mul(value, big.NewRat(1000000, 1))
+	decimal := value.FloatString(12)
+	exact, ok := new(big.Rat).SetString(decimal)
+	if !ok || exact.Cmp(value) != 0 || !analyticsAmountPattern.MatchString(decimal) {
+		return nil, fmt.Errorf("price rate cannot be represented as Decimal(24,12) per million tokens")
+	}
+
+	decimal = strings.TrimRight(strings.TrimRight(decimal, "0"), ".")
+
+	return &decimal, nil
 }
