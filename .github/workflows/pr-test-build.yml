@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Lint homelab scripts
-        run: shellcheck deploy/update.sh deploy/report-run deploy/report-with-vault-token
+        run: shellcheck deploy/update.sh deploy/report-run deploy/with-changefeed-token deploy/report-deploy
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest

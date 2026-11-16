@@ -15,14 +15,12 @@ duration=$(( $(date +%s%3N) - started ))
 
 printf '%s\n' "$output"
 
-output_tail=$(printf '%s' "$output" | tail -c 800)
-
 if [ "$exit_code" -eq 0 ]; then
   status=success
-  message="$output_tail"
+  message=""
 else
   status=failure
-  message="exit code ${exit_code}: ${output_tail}"
+  message="exit code ${exit_code}: $(printf '%s' "$output" | tail -c 800)"
 fi
 
 payload=$(jq -n --arg runId "$run_id" --arg job "$job" --arg status "$status" --argjson duration "$duration" --arg message "$message" \

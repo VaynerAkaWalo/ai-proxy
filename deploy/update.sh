@@ -10,6 +10,8 @@ after=$(docker image inspect --format '{{.Id}}' "$image")
 
 if [ "$before" != "$after" ]; then
   systemctl restart ai-proxy.service
-  "$deploy_dir/report-with-vault-token" ai-proxy-deploy -- echo "now running ${after:0:19}" \
+
+  digest=$(docker image inspect --format '{{join .RepoDigests ","}}' "$image")
+  "$deploy_dir/with-changefeed-token" "$deploy_dir/report-deploy" ai-proxy "$digest" \
     || echo "could not report the ai-proxy deploy" >&2
 fi

@@ -9,12 +9,10 @@ export OCI_CLI_CONFIG_FILE CHANGEFEED_URL
 if [ -z "${CHANGEFEED_TOKEN:-}" ]; then
   CHANGEFEED_TOKEN=$(oci secrets secret-bundle get-secret-bundle-by-name \
     --vault-id "$OCI_VAULT_ID" \
-    --secret-name changefeed-script-runs-token \
+    --secret-name changefeed-webhook-token \
     --query 'data."secret-bundle-content".content' \
     --raw-output | base64 -d)
   export CHANGEFEED_TOKEN
 fi
 
-deploy_dir=$(dirname "$(readlink -f "$0")")
-
-exec "$deploy_dir/report-run" "$@"
+exec "$@"

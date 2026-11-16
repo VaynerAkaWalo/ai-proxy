@@ -36,4 +36,4 @@ sudo systemctl enable --now ai-proxy.service ai-proxy-update.timer
 
 Set `AI_PROXY_TAG` in the same env file to pin a `sha-` tag.
 
-Both the timer runs and the deploys they trigger are reported to changefeed through `report-with-vault-token`, which reads the `changefeed-script-runs-token` secret from the Vault like `render-secrets.sh` does. A run reports as `ai-proxy-update`, and a restart onto a new image also reports as `ai-proxy-deploy` with the image id. Reaching `changefeed.blamedevs.com` needs Tailscale, and a Vault outage fails the update run, so the next timer run retries.
+Each timer run is reported to changefeed as `ai-proxy-update`, and a restart onto a new image also reports a deploy of `ai-proxy` with the image digest. `with-changefeed-token` reads the `changefeed-webhook-token` secret from the Vault like `render-secrets.sh` does, and `report-run` and `report-deploy` are the clients from the changefeed repository. Reaching `changefeed.blamedevs.com` needs Tailscale, and a Vault outage fails the update run, so the next timer run retries.

@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+service="${1:?usage: report-deploy <service> <image>}"
+image="${2:?usage: report-deploy <service> <image>}"
+
+: "${CHANGEFEED_URL:?}" "${CHANGEFEED_TOKEN:?}"
+
+deploy_id=$(cat /proc/sys/kernel/random/uuid)
+
+payload=$(jq -n --arg deployId "$deploy_id" --arg service "$service" --arg image "$image" \
+  '{deployId: $deployId, service: $service, image: $image}')
+
+curl --silent --show-error --fail --retry 3 --max-time 10 \
+  -H "authorization: Bearer ${CHANGEFEED_TOKEN}" \
+  -H "content-type: application/json" \
+  -d "$payload" "${CHANGEFEED_URL}/deploys"

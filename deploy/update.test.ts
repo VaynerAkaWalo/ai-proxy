@@ -7,7 +7,9 @@ const deployDir = import.meta.dir;
 
 const stubs = {
   docker: `#!/usr/bin/env bash
-if [ "$1 $2" = "image inspect" ]; then
+if [ "$1 $2" = "image inspect" ] && [[ "$*" == *RepoDigests* ]]; then
+  echo "$REPO_DIGEST"
+elif [ "$1 $2" = "image inspect" ]; then
   count=$(cat "$CALLS/inspects" 2>/dev/null || echo 0)
   echo $((count + 1)) > "$CALLS/inspects"
   echo "$IMAGE_IDS" | cut -d' ' -f$((count + 1))
@@ -26,6 +28,7 @@ printf %s "vault-token" | base64
 while [ $# -gt 0 ]; do
   case "$1" in
     -d) printf '%s\\n' "$2" | jq -c . >> "$CALLS/payloads"; shift 2;;
+    http*) echo "$1" >> "$CALLS/urls"; shift;;
     -H) printf '%s\\n' "$2" >> "$CALLS/headers"; shift 2;;
     *) shift;;
   esac
@@ -54,6 +57,7 @@ async function update(env: Record<string, string>) {
       ...Bun.env,
       PATH: `${join(sandbox, "bin")}:${Bun.env.PATH}`,
       CALLS: sandbox,
+      REPO_DIGEST: "ghcr.io/vaynerakawalo/ai-proxy@sha256:4f2c9e1ab7d3",
       ...env,
     },
     stdout: "pipe",
@@ -64,8 +68,9 @@ async function update(env: Record<string, string>) {
   const payloads = await readLines("payloads");
   const headers = await readLines("headers");
   const restarts = await readLines("systemctl");
+  const urls = await readLines("urls");
 
-  return { exitCode, payloads, headers, restarts };
+  return { exitCode, payloads, headers, restarts, urls };
 }
 
 async function readLines(name: string) {
@@ -74,19 +79,22 @@ async function readLines(name: string) {
   return content.split("\n").filter(Boolean);
 }
 
-test("reports the digest it now runs when the pulled image changed", async () => {
-  const result = await update({ IMAGE_IDS: "sha256:old0123456789abcdef sha256:new0123456789abcdef" });
+test("reports the deploy with the digest it now runs when the pulled image changed", async () => {
+  const result = await update({
+    IMAGE_IDS: "sha256:old0123456789abcdef sha256:new0123456789abcdef",
+  });
 
   expect(result.exitCode).toBe(0);
   expect(result.restarts).toEqual(["restart ai-proxy.service"]);
   expect(result.headers).toContain("authorization: Bearer vault-token");
 
-  const [deploy] = result.payloads.map((line) => JSON.parse(line));
-  expect(deploy).toMatchObject({
-    job: "ai-proxy-deploy",
-    status: "success",
-    message: "now running sha256:new012345678",
-  });
+  expect(result.urls).toEqual(["https://changefeed.blamedevs.com/deploys"]);
+  expect(result.payloads.map((line) => JSON.parse(line))).toMatchObject([
+    {
+      service: "ai-proxy",
+      image: "ghcr.io/vaynerakawalo/ai-proxy@sha256:4f2c9e1ab7d3",
+    },
+  ]);
 });
 
 test("reports nothing when the pulled image is the one already running", async () => {
