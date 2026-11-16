@@ -35,3 +35,5 @@ sudo systemctl enable --now ai-proxy.service ai-proxy-update.timer
 `ai-proxy-update.timer` pulls the image every 15 minutes and restarts the service when it changed. A restart also re-reads the Vault secrets, so `systemctl restart ai-proxy` picks up a rotated secret. The timer does not update deployment files. After configuration changes, run `git -C /opt/ai-proxy pull --ff-only` as the checkout owner and restart the service.
 
 Set `AI_PROXY_TAG` in the same env file to pin a `sha-` tag.
+
+Each timer run is reported to changefeed as `ai-proxy-update`, and a restart onto a new image also reports a deploy of `ai-proxy` with the image digest. `with-changefeed-token` reads the `changefeed-webhook-token` secret from the Vault like `render-secrets.sh` does, and `report-run` and `report-deploy` are the clients from the changefeed repository. Reaching `changefeed.blamedevs.com` needs Tailscale, and if the Vault or changefeed cannot be reached the update still runs and logs that it could not report.

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${OCI_CLI_CONFIG_FILE:=/etc/ai-proxy/oci/config}"
+: "${OCI_VAULT_ID:=ocid1.vault.oc1.eu-frankfurt-1.envlmxzraajjm.abtheljtih4bfnjucm5t73kmdb6tczsluu2prgsig4c4mcm3k2zno6hwgtaq}"
+: "${CHANGEFEED_URL:=https://changefeed.blamedevs.com}"
+export OCI_CLI_CONFIG_FILE CHANGEFEED_URL
+
+if [ -z "${CHANGEFEED_TOKEN:-}" ]; then
+  if CHANGEFEED_TOKEN=$(oci secrets secret-bundle get-secret-bundle-by-name \
+    --vault-id "$OCI_VAULT_ID" \
+    --secret-name changefeed-webhook-token \
+    --query 'data."secret-bundle-content".content' \
+    --raw-output | base64 -d); then
+    export CHANGEFEED_TOKEN
+  else
+    echo "with-changefeed-token: could not read the changefeed token, running unreported" >&2
+  fi
+fi
+
+exec "$@"
