@@ -85,7 +85,7 @@ test("reports the digest it now runs when the pulled image changed", async () =>
   expect(deploy).toMatchObject({
     job: "ai-proxy-deploy",
     status: "success",
-    message: "now running sha256:new0123456789",
+    message: "now running sha256:new012345678",
   });
 });
 
