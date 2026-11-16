@@ -7,12 +7,15 @@ set -euo pipefail
 export OCI_CLI_CONFIG_FILE CHANGEFEED_URL
 
 if [ -z "${CHANGEFEED_TOKEN:-}" ]; then
-  CHANGEFEED_TOKEN=$(oci secrets secret-bundle get-secret-bundle-by-name \
+  if CHANGEFEED_TOKEN=$(oci secrets secret-bundle get-secret-bundle-by-name \
     --vault-id "$OCI_VAULT_ID" \
     --secret-name changefeed-webhook-token \
     --query 'data."secret-bundle-content".content' \
-    --raw-output | base64 -d)
-  export CHANGEFEED_TOKEN
+    --raw-output | base64 -d); then
+    export CHANGEFEED_TOKEN
+  else
+    echo "with-changefeed-token: could not read the changefeed token, running unreported" >&2
+  fi
 fi
 
 exec "$@"

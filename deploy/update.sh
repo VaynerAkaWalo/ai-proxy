@@ -11,7 +11,7 @@ after=$(docker image inspect --format '{{.Id}}' "$image")
 if [ "$before" != "$after" ]; then
   systemctl restart ai-proxy.service
 
-  digest=$(docker image inspect --format '{{join .RepoDigests ","}}' "$image")
-  "$deploy_dir/with-changefeed-token" "$deploy_dir/report-deploy" ai-proxy "$digest" \
+  "$deploy_dir/with-changefeed-token" "$deploy_dir/report-deploy" ai-proxy \
+    "$(docker image inspect --format '{{join .RepoDigests ","}}' "$image")" \
     || echo "could not report the ai-proxy deploy" >&2
 fi
