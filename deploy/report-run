@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+job="${1:?usage: report-run <job> -- <command...>}"
+shift
+[ "${1:-}" = "--" ] && shift
+
+: "${CHANGEFEED_URL:?}" "${CHANGEFEED_TOKEN:?}"
+
+run_id=$(cat /proc/sys/kernel/random/uuid)
+started=$(date +%s%3N)
+output=$("$@" 2>&1)
+exit_code=$?
+duration=$(( $(date +%s%3N) - started ))
+
+printf '%s\n' "$output"
+
+output_tail=$(printf '%s' "$output" | tail -c 800)
+
+if [ "$exit_code" -eq 0 ]; then
+  status=success
+  message="$output_tail"
+else
+  status=failure
+  message="exit code ${exit_code}: ${output_tail}"
+fi
+
+payload=$(jq -n --arg runId "$run_id" --arg job "$job" --arg status "$status" --argjson duration "$duration" --arg message "$message" \
+  '{runId: $runId, job: $job, status: $status, durationMs: $duration} + (if $message == "" then {} else {message: $message} end)')
+
+curl --silent --show-error --fail --retry 3 --max-time 10 \
+  -H "authorization: Bearer ${CHANGEFEED_TOKEN}" \
+  -H "content-type: application/json" \
+  -d "$payload" "${CHANGEFEED_URL}/runs" || echo "report-run: could not report ${job}" >&2
+
+exit "$exit_code"

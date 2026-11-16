@@ -19,6 +19,18 @@ jobs:
       - name: Dashboard provisioning tests
         run: bun test ./deploy/analytics-dashboard.test.ts
 
+  homelab-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint homelab scripts
+        run: shellcheck deploy/update.sh deploy/report-run deploy/report-with-vault-token
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Update script tests
+        run: bun test ./deploy/update.test.ts
+
   build:
     runs-on: ubuntu-latest
     steps:
