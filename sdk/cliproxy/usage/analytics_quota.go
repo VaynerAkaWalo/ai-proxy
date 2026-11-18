@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -45,7 +46,7 @@ func subscriptionCosts(snapshots []QuotaSnapshot) []SubscriptionCost {
 	var costs []SubscriptionCost
 	at := map[string]int{}
 	for _, snapshot := range snapshots {
-		if snapshot.PlanPriceUSD == nil {
+		if !paid(snapshot.PlanPriceUSD) {
 			continue
 		}
 
@@ -68,6 +69,14 @@ func subscriptionCosts(snapshots []QuotaSnapshot) []SubscriptionCost {
 		costs = append(costs, cost)
 	}
 	return costs
+}
+
+func paid(price *string) bool {
+	if price == nil {
+		return false
+	}
+	amount, err := strconv.ParseFloat(*price, 64)
+	return err == nil && amount > 0
 }
 
 func (e *AnalyticsExporter) exportQuotaSnapshots(ctx context.Context) error {

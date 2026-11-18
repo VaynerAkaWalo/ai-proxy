@@ -172,3 +172,16 @@ func TestQuotaSnapshotsAreDeliveredEvenWhenTheirSubscriptionCostsAreRefused(t *t
 		t.Fatalf("refused subscription costs should show in the status, got %s", exporter.Status())
 	}
 }
+
+func TestRetiringAnAccountKeepsWhatItCostThatMonth(t *testing.T) {
+	plan, price, zero := "Pro", "20", "0"
+	retired := func(day int, usd *string) QuotaSnapshot {
+		return QuotaSnapshot{Source: QuotaSnapshotSource, ObservedAt: time.Date(2026, 12, day, 9, 0, 0, 0, time.UTC), Provider: "claude", AccountID: "a", Plan: &plan, PlanPriceUSD: usd, Window: SubscriptionWindow, Utilization: "0"}
+	}
+
+	costs := subscriptionCosts([]QuotaSnapshot{retired(3, &price), retired(10, &zero)})
+
+	if len(costs) != 1 || costs[0].USD != "20" {
+		t.Fatalf("a retired account should keep its paid month, got %+v", costs)
+	}
+}
