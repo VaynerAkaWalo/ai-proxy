@@ -6,16 +6,18 @@ let server: ReturnType<typeof Bun.serve> | undefined;
 
 afterEach(() => server?.stop(true));
 
-test("subscriptions use the reconciled inventory instead of historical quota accounts", async () => {
+test("spend cards are benchmarked against what the subscriptions cost", async () => {
   const definition = await Bun.file(join(root, "dashboards/llm-usage.json")).json();
-  const widget = definition.sections
+  const cards = definition.sections
     .flatMap((section: { widgets: { id: string }[] }) => section.widgets)
-    .find((widget: { id: string }) => widget.id === "subscriptions");
+    .filter((widget: { id: string }) => widget.id.startsWith("spend-"));
 
-  expect(widget.query.where).toEqual([
-    { dimension: "quota_window", op: "eq", value: "subscription" },
+  expect(cards.map(({ id, window, secondary }: Record<string, unknown>) => [id, window, secondary])).toEqual([
+    ["spend-all-time", "all", "subscription_costs.paid_usd"],
+    ["spend-this-month", { last: 1, unit: "month" }, "subscription_costs.paid_usd"],
+    ["spend-by-model", undefined, undefined],
+    ["spend-by-project", undefined, undefined],
   ]);
-  expect(widget.window).toBe("latest");
 });
 
 async function apply(status = 200, token = "dashboard-owner-token") {
