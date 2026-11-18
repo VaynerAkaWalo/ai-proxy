@@ -28,20 +28,83 @@
       }
     ]
   },
+  "filters": [
+    {
+      "dimension": "provider",
+      "label": "Provider"
+    },
+    {
+      "dimension": "executed_model",
+      "label": "Model"
+    },
+    {
+      "dimension": "project",
+      "label": "Project"
+    }
+  ],
   "sections": [
     {
       "title": "Overview",
       "widgets": [
         {
-          "id": "spend-mtd",
-          "title": "Spend",
-          "span": 3,
+          "id": "spend-all-time",
+          "title": "Total spend",
+          "span": 4,
           "height": "xs",
           "type": "stat",
           "query": {
             "model": "llm_usage",
             "measures": [
               "spend_usd"
+            ],
+            "dimensions": [],
+            "where": [],
+            "time": {
+              "dimension": "time"
+            }
+          },
+          "window": "all",
+          "secondary": "subscription_costs.paid_usd",
+          "labels": {
+            "subscription_costs.paid_usd": "paid"
+          }
+        },
+        {
+          "id": "spend-this-month",
+          "title": "Spend this month",
+          "span": 4,
+          "height": "xs",
+          "type": "stat",
+          "query": {
+            "model": "llm_usage",
+            "measures": [
+              "spend_usd"
+            ],
+            "dimensions": [],
+            "where": [],
+            "time": {
+              "dimension": "time"
+            }
+          },
+          "window": {
+            "last": 1,
+            "unit": "month"
+          },
+          "secondary": "subscription_costs.paid_usd",
+          "labels": {
+            "subscription_costs.paid_usd": "paid"
+          }
+        },
+        {
+          "id": "tokens-total",
+          "title": "Tokens",
+          "span": 4,
+          "height": "xs",
+          "type": "stat",
+          "query": {
+            "model": "llm_usage",
+            "measures": [
+              "attempts.total_tokens"
             ],
             "dimensions": [],
             "where": [],
@@ -52,84 +115,12 @@
           "compare": "previous_period"
         },
         {
-          "id": "spend-7d",
-          "title": "Spend",
-          "span": 3,
-          "height": "xs",
-          "type": "stat",
-          "query": {
-            "model": "llm_usage",
-            "measures": [
-              "spend_usd"
-            ],
-            "dimensions": [],
-            "where": [],
-            "time": {
-              "dimension": "time"
-            }
-          },
-          "window": {
-            "last": 7,
-            "unit": "day"
-          },
-          "secondary": "spend_per_day_over_7d",
-          "labels": {
-            "spend_per_day_over_7d": ""
-          }
-        },
-        {
-          "id": "subscriptions",
-          "title": "Subscriptions",
-          "span": 3,
-          "height": "xs",
-          "type": "stat",
-          "query": {
-            "model": "llm_usage",
-            "measures": [
-              "quota_snapshots.subscriptions_usd"
-            ],
-            "dimensions": [],
-            "where": [
-              {
-                "dimension": "quota_window",
-                "op": "eq",
-                "value": "subscription"
-              }
-            ]
-          },
-          "window": "latest"
-        },
-        {
-          "id": "failure-rate",
-          "title": "Failure rate",
-          "span": 3,
-          "height": "xs",
-          "type": "stat",
-          "query": {
-            "model": "llm_usage",
-            "measures": [
-              "attempts.failure_rate"
-            ],
-            "dimensions": [],
-            "where": [],
-            "time": {
-              "dimension": "time"
-            }
-          },
-          "window": {
-            "last": 7,
-            "unit": "day"
-          },
-          "secondary": "attempts.failed_attempts",
-          "labels": {
-            "attempts.failed_attempts": "failed"
-          }
-        },
-        {
-          "id": "cost-by-model",
-          "title": "Cost by model (USD/day)",
-          "span": 7,
+          "id": "spend-by-model",
+          "title": "Spend by model",
+          "span": 4,
           "height": "md",
+          "type": "table",
+          "layout": "bars",
           "query": {
             "model": "llm_usage",
             "measures": [
@@ -140,27 +131,64 @@
             ],
             "where": [],
             "time": {
-              "dimension": "time",
-              "granularity": "day"
+              "dimension": "time"
             }
           },
-          "type": "bar"
+          "sort": {
+            "by": "spend_usd",
+            "dir": "desc"
+          },
+          "limit": 6
         },
         {
-          "id": "capacity",
-          "title": "Capacity",
-          "span": 5,
+          "id": "spend-by-project",
+          "title": "Spend by project",
+          "span": 4,
           "height": "md",
           "type": "table",
+          "layout": "bars",
+          "query": {
+            "model": "llm_usage",
+            "measures": [
+              "spend_usd"
+            ],
+            "dimensions": [
+              "project"
+            ],
+            "where": [],
+            "time": {
+              "dimension": "time"
+            }
+          },
+          "sort": {
+            "by": "spend_usd",
+            "dir": "desc"
+          },
+          "limit": 6
+        },
+        {
+          "id": "quota-left",
+          "title": "Weekly quota left",
+          "span": 4,
+          "height": "md",
+          "type": "table",
+          "layout": "bars",
+          "max": 1,
+          "marker": {
+            "window": {
+              "last": 7,
+              "unit": "day"
+            }
+          },
           "query": {
             "model": "llm_usage",
             "measures": [
               "quota_snapshots.remaining_utilization",
-              "estimated_usage_left_usd",
               "quota_snapshots.latest_resets_at"
             ],
             "dimensions": [
-              "provider"
+              "provider",
+              "account"
             ],
             "where": [
               {
@@ -170,21 +198,15 @@
               }
             ]
           },
-          "sort": {
-            "by": "provider",
-            "dir": "asc"
-          },
-          "labels": {
-            "provider": "Provider",
-            "quota_snapshots.latest_resets_at": "Reset",
-            "quota_snapshots.remaining_utilization": "Left",
-            "estimated_usage_left_usd": "Estimated"
-          },
           "period": {
             "name": "quota_reset",
             "window": "current"
           },
-          "hide_window": true
+          "hide_window": true,
+          "sort": {
+            "by": "quota_snapshots.remaining_utilization",
+            "dir": "asc"
+          }
         },
         {
           "id": "models",
@@ -196,10 +218,9 @@
             "model": "llm_usage",
             "measures": [
               "spend_usd",
-              "attempts.attempts",
               "spend_per_mtok_usd",
               "attempts.cache_read_share",
-              "attempts.failure_rate"
+              "spend_per_session_usd"
             ],
             "dimensions": [
               "executed_model"
@@ -209,19 +230,17 @@
               "dimension": "time"
             }
           },
-          "share": "spend_usd",
           "sort": {
             "by": "spend_usd",
             "dir": "desc"
           },
-          "limit": 15,
+          "limit": 8,
           "labels": {
-            "attempts.attempts": "Attempts",
-            "spend_usd": "Spend",
-            "attempts.failure_rate": "Fail rate",
             "executed_model": "Model",
-            "attempts.cache_read_share": "Cache read",
-            "spend_per_mtok_usd": "$ / Mtok"
+            "spend_usd": "Spend",
+            "spend_per_mtok_usd": "$ / Mtok",
+            "attempts.cache_read_share": "Cache hit",
+            "spend_per_session_usd": "$ / conversation"
           }
         }
       ]
