@@ -16,7 +16,7 @@ The Go module still uses `github.com/router-for-me/CLIProxyAPI/v8`.
 
 To look at the exported data, like checking that rows arrived or running a query, use the read-only tools of the analytics MCP server (`mcp__analytics__*`, like `query` and `latest_rows`) instead of curl or an API token you create.
 
-Rows are loaded by the exporter, and `cmd/reconcile_llm_prices` updates their price keys and context bands, and the dashboard comes from [dashboards/llm-usage.json](dashboards/llm-usage.json) through [deploy/apply-analytics-dashboard.sh](deploy/apply-analytics-dashboard.sh), so don't change analytics with the MCP write tools. If the MCP tools are missing, tell me.
+Rows are loaded by the exporter, and `cmd/reconcile_llm_prices` updates the price keys and context bands of attempt rows, and the dashboard comes from [dashboards/llm-usage.json](dashboards/llm-usage.json) through [deploy/apply-analytics-dashboard.sh](deploy/apply-analytics-dashboard.sh), so don't change analytics with the MCP write tools. If the MCP tools are missing, tell me.
 
 ## Local development
 
