@@ -14,9 +14,9 @@ The Go module still uses `github.com/router-for-me/CLIProxyAPI/v8`.
 
 ## Analytics
 
-`dashboards/llm-usage.json` is the source of truth for the usage dashboard, and `deploy/apply-analytics-dashboard.sh` overwrites what is saved in analytics.
+To look at the exported data, like checking that rows arrived or running a query, use the read-only tools of the analytics MCP server (`mcp__analytics__*`, like `query` and `latest_rows`) instead of curl or an API token you create.
 
-To look at the exported data, like checking that rows arrived or running a query, use the analytics MCP tools (`mcp__analytics__*`) instead of curl or an API token you create. The exporter and the apply script keep their own tokens. Don't change the dashboard with `save_dashboard` or write rows with `ingest_rows`, because the apply script and the exporter own those. If the tools are missing, tell me.
+Rows are loaded by the exporter and corrected by `cmd/reconcile_llm_prices`, and the dashboard comes from [dashboards/llm-usage.json](dashboards/llm-usage.json) through [deploy/apply-analytics-dashboard.sh](deploy/apply-analytics-dashboard.sh), so don't change analytics with the MCP write tools. If the MCP tools are missing, tell me.
 
 ## Local development
 
