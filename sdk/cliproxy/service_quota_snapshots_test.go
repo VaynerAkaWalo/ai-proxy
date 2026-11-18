@@ -89,12 +89,15 @@ func TestServiceAccountingSubscriptionsFollowCredentialsWithoutQuotaWindows(t *t
 		lines := bufio.NewScanner(r.Body)
 		count := 0
 		for lines.Scan() {
+			count++
+			if r.URL.Path != "/api/datasets/test/llm_quota_snapshots/rows" {
+				continue
+			}
 			var row usage.QuotaSnapshot
 			if err := json.Unmarshal(lines.Bytes(), &row); err != nil {
 				t.Error(err)
 			}
 			rows = append(rows, row)
-			count++
 		}
 		_, _ = fmt.Fprintf(w, `{"rows":%d}`, count)
 	}))
