@@ -8,13 +8,19 @@ afterEach(() => server?.stop(true));
 
 test("paid leaves the picked range blank because subscriptions are billed per month", async () => {
   const definition = await Bun.file(join(root, "dashboards/llm-usage.json")).json();
-  const cards = definition.sections
-    .flatMap((section: { widgets: { id: string }[] }) => section.widgets)
-    .filter((widget: { id: string }) => ["spend", "paid"].includes(widget.id));
+  const [overview] = definition.sections;
+  const windows = (blank: boolean) => [
+    { window: "all" },
+    { window: { last: 1, unit: "month" } },
+    { window: "dashboard", ...(blank && { blank: true }) },
+  ];
 
-  expect(cards.map(({ windows }: { windows: unknown }) => windows)).toEqual([
-    [{ window: "all" }, { window: { last: 1, unit: "month" } }, { window: "dashboard" }],
-    [{ window: "all" }, { window: { last: 1, unit: "month" } }, { window: "dashboard", blank: true }],
+  expect(
+    overview.widgets.slice(0, 3).map(({ id, query, windows }: Record<string, any>) => [id, query.measures, windows]),
+  ).toEqual([
+    ["spend", ["spend_usd"], windows(false)],
+    ["paid", ["subscription_costs.paid_usd"], windows(true)],
+    ["tokens", ["attempts.total_tokens"], windows(false)],
   ]);
 });
 
