@@ -6,15 +6,15 @@ let server: ReturnType<typeof Bun.serve> | undefined;
 
 afterEach(() => server?.stop(true));
 
-test("spend cards are benchmarked against what the subscriptions cost", async () => {
+test("paid leaves the picked range blank because subscriptions are billed per month", async () => {
   const definition = await Bun.file(join(root, "dashboards/llm-usage.json")).json();
   const cards = definition.sections
     .flatMap((section: { widgets: { id: string }[] }) => section.widgets)
-    .filter((widget: { id: string }) => ["spend-all-time", "spend-this-month"].includes(widget.id));
+    .filter((widget: { id: string }) => ["spend", "paid"].includes(widget.id));
 
-  expect(cards.map(({ window, secondary }: Record<string, unknown>) => [window, secondary])).toEqual([
-    ["all", "subscription_costs.paid_usd"],
-    [{ last: 1, unit: "month" }, "subscription_costs.paid_usd"],
+  expect(cards.map(({ windows }: { windows: unknown }) => windows)).toEqual([
+    [{ window: "all" }, { window: { last: 1, unit: "month" } }, { window: "dashboard" }],
+    [{ window: "all" }, { window: { last: 1, unit: "month" } }, { window: "dashboard", blank: true }],
   ]);
 });
 

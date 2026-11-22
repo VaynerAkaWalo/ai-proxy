@@ -47,8 +47,8 @@
       "title": "Overview",
       "widgets": [
         {
-          "id": "spend-all-time",
-          "title": "Total spend",
+          "id": "spend",
+          "title": "Spend",
           "span": 4,
           "height": "xs",
           "type": "stat",
@@ -63,22 +63,31 @@
               "dimension": "time"
             }
           },
-          "window": "all",
-          "secondary": "subscription_costs.paid_usd",
-          "labels": {
-            "subscription_costs.paid_usd": "paid"
-          }
+          "windows": [
+            {
+              "window": "all"
+            },
+            {
+              "window": {
+                "last": 1,
+                "unit": "month"
+              }
+            },
+            {
+              "window": "dashboard"
+            }
+          ]
         },
         {
-          "id": "spend-this-month",
-          "title": "Spend this month",
+          "id": "paid",
+          "title": "Paid",
           "span": 4,
           "height": "xs",
           "type": "stat",
           "query": {
             "model": "llm_usage",
             "measures": [
-              "spend_usd"
+              "subscription_costs.paid_usd"
             ],
             "dimensions": [],
             "where": [],
@@ -86,17 +95,24 @@
               "dimension": "time"
             }
           },
-          "window": {
-            "last": 1,
-            "unit": "month"
-          },
-          "secondary": "subscription_costs.paid_usd",
-          "labels": {
-            "subscription_costs.paid_usd": "paid"
-          }
+          "windows": [
+            {
+              "window": "all"
+            },
+            {
+              "window": {
+                "last": 1,
+                "unit": "month"
+              }
+            },
+            {
+              "window": "dashboard",
+              "blank": true
+            }
+          ]
         },
         {
-          "id": "tokens-total",
+          "id": "tokens",
           "title": "Tokens",
           "span": 4,
           "height": "xs",
@@ -112,7 +128,20 @@
               "dimension": "time"
             }
           },
-          "compare": "previous_period"
+          "windows": [
+            {
+              "window": "all"
+            },
+            {
+              "window": {
+                "last": 1,
+                "unit": "month"
+              }
+            },
+            {
+              "window": "dashboard"
+            }
+          ]
         },
         {
           "id": "spend-by-model",
