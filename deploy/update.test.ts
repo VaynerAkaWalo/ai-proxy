@@ -16,8 +16,12 @@ elif [ "$1 $2" = "image inspect" ]; then
   echo $((count + 1)) > "$CALLS/inspects"
   echo "$IMAGE_IDS" | cut -d' ' -f$((count + 1))
 fi
-if [ "$1" = "pull" ] && [ -n "\${PULL_FAILS:-}" ]; then
-  exit 1
+if [ "$1" = "pull" ]; then
+  pulls=$(cat "$CALLS/pulls" 2>/dev/null || echo 0)
+  echo $((pulls + 1)) > "$CALLS/pulls"
+  if [ -n "\${PULL_FAILS:-}" ] || [ "$pulls" -lt "\${PULL_FAILS_TIMES:-0}" ]; then
+    exit 1
+  fi
 fi
 `,
   systemctl: `#!/usr/bin/env bash
@@ -61,6 +65,7 @@ async function run(command: string[], env: Record<string, string>) {
       PATH: `${join(sandbox, "bin")}:${Bun.env.PATH}`,
       CALLS: sandbox,
       REPO_DIGEST: repoDigest,
+      AI_PROXY_PULL_BACKOFF_SECONDS: "0",
       ...env,
     },
     stdout: "pipe",
@@ -79,6 +84,7 @@ async function run(command: string[], env: Record<string, string>) {
     headers: await readLines("headers"),
     restarts: await readLines("systemctl"),
     urls: await readLines("urls"),
+    pulls: Number((await readLines("pulls"))[0] ?? 0),
   };
 }
 
@@ -167,13 +173,25 @@ test("reports the update run itself under the unit's job name", async () => {
   ]);
 });
 
-test("fails without restarting when the pull fails", async () => {
+test("updates when the pull succeeds after transient failures", async () => {
+  const result = await update({
+    IMAGE_IDS: "sha256:old sha256:new",
+    PULL_FAILS_TIMES: "2",
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.pulls).toBe(3);
+  expect(result.restarts).toEqual(["restart ai-proxy.service"]);
+});
+
+test("fails without restarting when every pull attempt fails", async () => {
   const result = await update({
     IMAGE_IDS: "sha256:old sha256:new",
     PULL_FAILS: "1",
   });
 
   expect(result.exitCode).not.toBe(0);
+  expect(result.pulls).toBe(3);
   expect(result.restarts).toEqual([]);
 });
 
